@@ -73,7 +73,7 @@ pub const Channel = enum {
     nightly,
 
     pub fn parse(text: []const u8) Channel {
-        return std.meta.stringToEnum(Channel, std.mem.trim(u8, text, " \t\r\n")) orelse .nightly;
+        return std.meta.stringToEnum(Channel, std.mem.trim(u8, text, " \t\r\n")) orelse .stable;
     }
 
     /// Where its version.txt is, below https://github.com/<repo>/releases/

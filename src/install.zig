@@ -30,7 +30,7 @@ fn appPath(buf: []u8, app: catalog.App) ![:0]const u8 {
 /// Downloads the app next to where it goes, checks it is an ARM program and puts it in
 /// place. A running app goes on with its old file and uses the new one from its next start.
 /// Then gets its icons and declares it in the applications menu, as `title`.
-pub fn install(app: catalog.App, build: catalog.Build, title: []const u8) !void {
+pub fn install(app: catalog.App, build: catalog.Build, title: []const u8, on_progress: ?net.ProgressFn) !void {
     var url_buf: [512]u8 = undefined;
     const url = try catalog.binaryUrl(&url_buf, app, build, build_options.platform);
 
@@ -41,7 +41,7 @@ pub fn install(app: catalog.App, build: catalog.Build, title: []const u8) !void 
     errdefer _ = std.c.unlink(part.ptr);
 
     trace("install: {s} -> {s}\n", .{ url, part });
-    try net.download(url, apps_dir, part_name);
+    try net.download(url, apps_dir, part_name, on_progress);
     if (!startsLikeApp(part)) return error.NotAnApp;
 
     var path_buf: [256]u8 = undefined;
@@ -77,7 +77,7 @@ fn fetchIcons(app: catalog.App) bool {
         var name_buf: [96]u8 = undefined;
         const url = std.fmt.bufPrintSentinel(&url_buf, "{s}/{s}{s}.bmp", .{ icons_url, app.id, suffix }, 0) catch return false;
         const name = std.fmt.bufPrint(&name_buf, "{s}{s}.bmp", .{ app.id, suffix }) catch return false;
-        net.download(url, icons_dir, name) catch |err| {
+        net.download(url, icons_dir, name, null) catch |err| {
             trace("icon {s}: {s}\n", .{ name, @errorName(err) });
             return false;
         };

@@ -16,6 +16,17 @@ pub fn lastFailure(buf: []u8) []const u8 {
     return failure.describe(buf);
 }
 
+/// Called while a download runs, with the bytes received so far and the total,
+/// or 0 if the server does not say
+pub const ProgressFn = *const fn (downloaded: u64, total: u64) void;
+var current_progress: ?ProgressFn = null;
+
+fn curlProgress(_: ?*anyopaque, dltotal: i64, dlnow: i64, _: i64, _: i64) callconv(.c) c_int {
+    if (current_progress) |report| report(@intCast(@max(dlnow, 0)), @intCast(@max(dltotal, 0)));
+    // Anything but 0 aborts the transfer
+    return 0;
+}
+
 const Buffer = struct {
     allocator: std.mem.Allocator,
     bytes: std.ArrayList(u8) = .empty,
@@ -56,6 +67,11 @@ fn perform(url: [:0]const u8, target: Target) !void {
         .file => |file| _ = curl.curl_easy_setopt(handle, curl.CURLOPT_WRITEDATA, file),
     }
 
+    if (current_progress != null) {
+        _ = curl.curl_easy_setopt(handle, curl.CURLOPT_NOPROGRESS, @as(c_long, 0));
+        _ = curl.curl_easy_setopt(handle, curl.CURLOPT_XFERINFOFUNCTION, &curlProgress);
+    }
+
     if (builtin.mode == .debug) {
         _ = curl.curl_easy_setopt(handle, curl.CURLOPT_VERBOSE, @as(c_long, 1));
     }
@@ -84,7 +100,10 @@ pub fn fetch(allocator: std.mem.Allocator, url: [:0]const u8) ![]u8 {
 }
 
 /// Saves what is at `url` as `filename` in `target_dir`. Nothing is left behind on failure.
-pub fn download(url: [:0]const u8, target_dir: []const u8, filename: []const u8) !void {
+pub fn download(url: [:0]const u8, target_dir: []const u8, filename: []const u8, on_progress: ?ProgressFn) !void {
+    current_progress = on_progress;
+    defer current_progress = null;
+
     var path_buf: [384]u8 = undefined;
     const target_path = try std.fmt.bufPrintSentinel(&path_buf, "{s}/{s}", .{ target_dir, filename }, 0);
 

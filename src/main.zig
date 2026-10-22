@@ -346,9 +346,16 @@ fn installAnswered(button: c_int) callconv(.c) void {
     };
     const was_present = entry.present;
 
-    pb.ShowHourglassForce();
-    const result = install.install(entry.app, build, entry.app.name());
-    pb.HideHourglass();
+    // The reader turns Wi-Fi off after a while, it may be off since the list was loaded
+    if (!pocketbook.ensureNetwork()) {
+        var buf: [256]u8 = undefined;
+        pocketbook.showError(i18n.fmt(&buf, .install_error, .{entry.app.name()}), error.NoNetwork);
+        return;
+    }
+    progress_step = 0;
+    pb.OpenProgressbar(pb.ICON_INFORMATION, t(.downloading).ptr, entry.app.name().ptr, 0, null);
+    const result = install.install(entry.app, build, entry.app.name(), onProgress);
+    pb.CloseProgressbar();
 
     var buf: [256]u8 = undefined;
     result catch |err| {
@@ -371,6 +378,21 @@ fn installAnswered(button: c_int) callconv(.c) void {
 }
 
 /// A copy that outlives the version file it was read from
+/// Tenths of the download (or megabytes, when the size is unknown) already shown: e-ink
+/// screens are slow, the bar is redrawn about ten times per download only
+var progress_step: u64 = 0;
+
+fn onProgress(downloaded: u64, total: u64) void {
+    const step = if (total > 0) downloaded * 10 / total else downloaded / (1024 * 1024);
+    if (step == progress_step) return;
+    progress_step = step;
+
+    var buf: [32]u8 = undefined;
+    const text = std.fmt.bufPrintSentinel(&buf, "{d} KB", .{downloaded / 1024}, 0) catch return;
+    const percent: c_int = if (total > 0) @intCast(@min(100, downloaded * 100 / total)) else 0;
+    _ = pb.UpdateProgressbar(text.ptr, percent);
+}
+
 fn copyBuild(build: catalog.Build) !catalog.Build {
     const allocator = arena.allocator();
     var copy: catalog.Build = .{};
@@ -387,6 +409,7 @@ fn switchChannel() void {
         .stable => .nightly,
     };
     state.setChannel(entry.app.id, entry.channel);
+    online = pocketbook.ensureNetwork();
     if (online) {
         pb.ShowHourglassForce();
         entry.available = available(arena.allocator(), entry.app, entry.channel);

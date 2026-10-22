@@ -24,9 +24,9 @@ The app lists the apps with what is installed and what is available. Touch an ap
 
 * **Install** or **Update** it. The app asks first, saying which version it is and whether it
   is a stable release or a nightly build.
-* **Switch** between stable releases and nightly builds. Stable releases are versions the
-  author tagged; nightly builds are made from every change and are less tested. An app with no
-  stable release yet offers nothing on that channel.
+* **Switch** between stable releases and nightly builds. Apps follow stable releases, versions
+  the author tagged, unless you switch them to nightly builds, made from every change and less
+  tested. Do that when you know why: to try a fix, or to test what comes next.
 * **Uninstall** it. Its settings and your books stay.
 
 The last row sets the language: the reader's, French or English.

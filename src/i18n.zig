@@ -57,6 +57,7 @@ const texts = .{
     .channel_name_nightly = .{ "nightly build", "version nightly" },
     .unreachable_build = .{ "{s} · could not check", "{s} · vérification impossible" },
     .install = .{ "Install", "Installer" },
+    .downloading = .{ "Downloading", "Téléchargement" },
     .update = .{ "Update", "Mettre à jour" },
     .reinstall = .{ "Reinstall", "Réinstaller" },
     .uninstall = .{ "Uninstall", "Désinstaller" },

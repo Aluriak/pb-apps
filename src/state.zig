@@ -21,11 +21,12 @@ pub fn setLanguage(choice: i18n.Choice) void {
     _ = pb.SaveConfig(config);
 }
 
+/// Stable releases unless the user chose nightly builds for the app
 pub fn channel(id: []const u8) catalog.Channel {
-    const config = pb.OpenConfig(path, null) orelse return .nightly;
+    const config = pb.OpenConfig(path, null) orelse return .stable;
     defer pb.CloseConfigNoSave(config);
     var key_buf: [96]u8 = undefined;
-    return catalog.Channel.parse(std.mem.span(pb.ReadString(config, key(&key_buf, id, "channel"), "nightly")));
+    return catalog.Channel.parse(std.mem.span(pb.ReadString(config, key(&key_buf, id, "channel"), "stable")));
 }
 
 pub fn setChannel(id: []const u8, value: catalog.Channel) void {
