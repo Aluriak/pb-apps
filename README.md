@@ -12,12 +12,12 @@ from their GitHub releases. In English or French.
 ## Install
 
 1. Download the archive for your reader from the
-   [nightly release](https://github.com/Aluriak/pb-apps/releases/tag/nightly):
+   [latest release](https://github.com/Aluriak/pb-apps/releases/latest):
    `app-manager-allwinner.zip` for most readers (Era, Verse, InkPad 4, Vivlio Light HD Color…),
    `app-manager-rk3566.zip` for Verta, InkPad One and PocketBook Q.
 2. Unzip it and copy `app-manager.app` into the `applications` folder of the reader.
-3. Open "app-manager" from the applications list. It then puts itself and the other apps in
-   the menu under their names, in a group of their own. From then on it updates itself.
+3. Open "@app-manager" from the applications list. From then on it updates itself, and can
+   give the apps their names and icons in the menu (see below).
 
 ## Use
 
