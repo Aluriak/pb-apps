@@ -34,19 +34,45 @@ class Pen:
         for x, y in (pts[0], pts[-1]):
             self.draw.ellipse([(x - r, y - r), (x + r, y + r)], fill=0)
 
+    def curve(self, *points):
+        """A smooth line through quadratic Bezier segments: start, control, end, control, end..."""
+        out = [points[0]]
+        for i in range(1, len(points) - 1, 2):
+            (x0, y0), (cx, cy), (x1, y1) = out[-1], points[i], points[i + 1]
+            for step in range(1, 25):
+                t = step / 24
+                out.append((
+                    (1 - t) ** 2 * x0 + 2 * (1 - t) * t * cx + t * t * x1,
+                    (1 - t) ** 2 * y0 + 2 * (1 - t) * t * cy + t * t * y1,
+                ))
+        self.line(*out)
+
     def box(self, x0, y0, x1, y1, radius):
         self.draw.rounded_rectangle(self._p([(x0, y0), (x1, y1)]), radius=radius * SCALE, outline=0, width=self.width)
 
 
 def opds_connector(pen):
-    # An open book, two pages with rounded corners and lines of text, an arrow coming down
-    pen.box(24, 44, 59, 104, 6)
-    pen.box(63, 44, 98, 104, 6)
-    for y in (62, 76):
-        pen.line((32, y), (51, y))
-        pen.line((71, y), (90, y))
-    pen.line((61, 10), (61, 32))
-    pen.line((52, 24), (61, 33), (70, 24))
+    # An open book seen from the front: the pages curve down into the spine at the top and
+    # the bottom, their lines of text follow the curve. An arrow comes down into it.
+    left, spine, right = 18, 61, 104
+    top, bottom = 42, 104
+    # Top edges, rising from the outer edge then sinking into the spine
+    pen.curve((left, top + 4), (33, top - 6), (spine, top + 6))
+    pen.curve((spine, top + 6), (89, top - 6), (right, top + 4))
+    # Bottom edges
+    pen.curve((left, bottom), (36, bottom - 12), (spine, bottom))
+    pen.curve((spine, bottom), (86, bottom - 12), (right, bottom))
+    # Outer edges and spine
+    pen.line((left, top + 4), (left, bottom))
+    pen.line((right, top + 4), (right, bottom))
+    pen.line((spine, top + 6), (spine, bottom))
+    # Lines of text
+    for y in (60, 72, 84):
+        pen.curve((28, y + 2), (39, y - 4), (51, y + 1))
+        pen.curve((71, y + 1), (83, y - 4), (94, y + 2))
+    # The download arrow
+    pen.line((61, 6), (61, 28))
+    pen.line((52, 20), (61, 29), (70, 20))
 
 
 def reading_stats(pen):
