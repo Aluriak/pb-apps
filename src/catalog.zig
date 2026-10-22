@@ -17,6 +17,8 @@ pub const App = struct {
     file: []const u8,
     names: [2][]const u8,
     descriptions: [2][]const u8,
+    /// Earlier names of the app file, comma separated
+    old_files: []const u8 = "",
 
     pub fn name(app: App) []const u8 {
         return app.names[@backingInt(i18n.lang)];
@@ -35,15 +37,16 @@ pub fn parse(allocator: std.mem.Allocator, text: []const u8) ![]App {
         const line = std.mem.trimEnd(u8, raw, "\r");
         if (line.len == 0 or line[0] == '#') continue;
 
-        var fields: [8][]const u8 = undefined;
+        var fields: [9][]const u8 = @splat("");
         var it = std.mem.splitScalar(u8, line, '\t');
         var count: usize = 0;
         while (it.next()) |field| : (count += 1) {
             if (count == fields.len) break;
             fields[count] = std.mem.trim(u8, field, " ");
         }
-        if (count < fields.len or !valid(fields[0]) or !valid(fields[2])) continue;
-        if (std.mem.indexOfScalar(u8, fields[3], '/') != null or fields[3].len == 0) continue;
+        // The old file names are optional
+        if (count < 8 or !valid(fields[0]) or !valid(fields[2]) or !valid(fields[3])) continue;
+        if (std.mem.indexOfScalar(u8, fields[8], '/') != null) continue;
 
         try apps.append(allocator, .{
             .id = fields[0],
@@ -52,6 +55,7 @@ pub fn parse(allocator: std.mem.Allocator, text: []const u8) ![]App {
             .file = fields[3],
             .names = .{ fields[4], fields[5] },
             .descriptions = .{ fields[6], fields[7] },
+            .old_files = fields[8],
         });
     }
     return apps.toOwnedSlice(allocator);
@@ -159,7 +163,8 @@ test "the built-in catalog lists the three apps" {
     defer std.testing.allocator.free(apps);
     try std.testing.expectEqual(3, apps.len);
     try std.testing.expectEqualStrings("app-manager", apps[0].id);
-    try std.testing.expectEqualStrings("OPDS Connector", apps[1].file);
+    try std.testing.expectEqualStrings("opds-connector", apps[1].file);
+    try std.testing.expectEqualStrings("OPDS Connector", apps[1].old_files);
     i18n.lang = .fr;
     defer i18n.lang = .en;
     try std.testing.expectEqualStrings("Statistiques de lecture", apps[2].name());
@@ -171,11 +176,13 @@ test "parse skips comments, short lines and unsafe names" {
         "short\tline\n" ++
         "bad id\tA/b\ta\tA\tA\tA\tA\tA\n" ++
         "ok\tA/b\ta\t../escape\tA\tA\tA\tA\n" ++
-        "good\tA/b\tasset\tGood App\tGood\tBon\tdesc\tdesc fr\r\n";
+        "spaces\tA/b\ta\tGood App\tA\tA\tA\tA\n" ++
+        "good\tA/b\tasset\tgood-app\tGood\tBon\tdesc\tdesc fr\r\n";
     const apps = try parse(std.testing.allocator, text);
     defer std.testing.allocator.free(apps);
     try std.testing.expectEqual(1, apps.len);
-    try std.testing.expectEqualStrings("Good App", apps[0].file);
+    try std.testing.expectEqualStrings("good-app", apps[0].file);
+    try std.testing.expectEqualStrings("", apps[0].old_files);
 }
 
 test "Build reads a version file and describes it" {

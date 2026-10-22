@@ -2,7 +2,8 @@
 """Draws the icons of the apps into icons/: <id>.bmp and <id>_f.bmp (focused).
 
 Same look as the reader's own icons: thin black outlines with rounded ends on white, in a
-square of 122 pixels (the reader takes up to 128). The focused icon has a thicker line.
+square of 122 pixels (the reader takes up to 128) with a margin around the drawing.
+The focused icon has a thicker line.
 Drawn four times larger, then scaled down, for smooth lines.
 Needs Pillow: pip install pillow
 """
@@ -100,17 +101,27 @@ ICONS = {
 }
 
 
+# The drawing takes this share of the square, like the reader's icons, which leave a margin:
+# drawn full size, the icons looked too big and pushed their titles out of line
+FILL = 0.72
+
+
 def render(draw_icon, width):
     image = Image.new("L", (SIZE * SCALE, SIZE * SCALE), 255)
-    draw_icon(Pen(ImageDraw.Draw(image), width))
-    return image.resize((SIZE, SIZE), Image.LANCZOS).convert("RGB")
+    # The line is drawn wider, as the drawing is scaled down
+    draw_icon(Pen(ImageDraw.Draw(image), width / FILL))
+    inner = round(SIZE * FILL)
+    icon = Image.new("L", (SIZE, SIZE), 255)
+    offset = (SIZE - inner) // 2
+    icon.paste(image.resize((inner, inner), Image.LANCZOS), (offset, offset))
+    return icon.convert("RGB")
 
 
 def main():
     OUT.mkdir(exist_ok=True)
     for app_id, draw_icon in ICONS.items():
-        render(draw_icon, 3.5).save(OUT / f"{app_id}.bmp")
-        render(draw_icon, 5.5).save(OUT / f"{app_id}_f.bmp")
+        render(draw_icon, 2.6).save(OUT / f"{app_id}.bmp")
+        render(draw_icon, 4.0).save(OUT / f"{app_id}_f.bmp")
         print(f"icons/{app_id}.bmp, icons/{app_id}_f.bmp")
 
 

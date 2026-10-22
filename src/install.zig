@@ -5,6 +5,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 
 const catalog = @import("catalog.zig");
+const i18n = @import("i18n.zig");
 const net = @import("net.zig");
 const view = @import("view.zig");
 const pocketbook = @import("pocketbook.zig");
@@ -15,6 +16,28 @@ const apps_dir = storage ++ "/applications";
 const icons_dir = apps_dir ++ "/icons";
 /// The icons of the apps are kept in this repository
 const icons_url = "https://raw.githubusercontent.com/Aluriak/pb-apps/main/icons";
+
+/// Brings an app file of an earlier name to the current one: renamed when there is no file of
+/// the current name, removed when there is one already (e.g. installed by an older app
+/// manager). Renaming or removing the file of a running program is fine.
+pub fn migrate(app: catalog.App) void {
+    var it = std.mem.splitScalar(u8, app.old_files, ',');
+    while (it.next()) |raw| {
+        const old = std.mem.trim(u8, raw, " ");
+        if (old.len == 0) continue;
+        var old_buf: [256]u8 = undefined;
+        var new_buf: [256]u8 = undefined;
+        const from = std.fmt.bufPrintSentinel(&old_buf, "{s}/{s}.app", .{ apps_dir, old }, 0) catch continue;
+        const to = appPath(&new_buf, app) catch return;
+        if (std.c.access(from.ptr, 0) != 0) continue;
+        if (isPresent(app)) {
+            trace("removing {s}, {s} is there\n", .{ from, to });
+            _ = std.c.unlink(from.ptr);
+        } else if (std.c.rename(from.ptr, to.ptr) == 0) {
+            trace("renamed {s} to {s}\n", .{ from, to });
+        }
+    }
+}
 
 /// Whether the app file is in the applications folder
 pub fn isPresent(app: catalog.App) bool {
@@ -99,6 +122,7 @@ const DeclarationBufs = struct {
             .title = title,
             .icon = if (icons) try std.fmt.bufPrint(&bufs.icon, "applications/icons/{s}.bmp", .{app.id}) else null,
             .focused_icon = if (icons) try std.fmt.bufPrint(&bufs.focused, "applications/icons/{s}_f.bmp", .{app.id}) else null,
+            .group = i18n.t(.group_title),
         };
     }
 };

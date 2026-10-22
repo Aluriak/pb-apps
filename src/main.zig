@@ -121,7 +121,10 @@ fn load() !void {
         entry.* = .{
             .app = app,
             .channel = state.channel(app.id),
-            .present = install.isPresent(app),
+            .present = blk: {
+                install.migrate(app);
+                break :blk install.isPresent(app);
+            },
             .installed = try state.installed(allocator, app.id),
             .available = .unknown,
         };

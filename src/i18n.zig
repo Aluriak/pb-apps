@@ -45,6 +45,8 @@ pub var lang: Lang = .en;
 /// Every text, first in English, then in French. Texts with {} take arguments, see `fmt`.
 const texts = .{
     .app_title = .{ "App Manager", "Gestionnaire d'apps" },
+    // Also in view.our_group_titles, which finds the group again in any language
+    .group_title = .{ "More apps", "Autres applications" },
     .loading_error = .{ "Could not load the list of apps", "Impossible de charger la liste des apps" },
     .offline = .{ "No network: versions are not shown", "Pas de réseau : les versions ne sont pas affichées" },
     .not_installed = .{ "Not installed", "Non installée" },
@@ -130,4 +132,10 @@ test "the reader's language decides when the choice is auto" {
     try std.testing.expectEqual(Lang.en, Choice.en.resolve("fr"));
     try std.testing.expectEqual(Choice.fr, Choice.parse("fr\n"));
     try std.testing.expectEqual(Choice.auto, Choice.parse("klingon"));
+}
+
+test "the group title is one the menu file code knows" {
+    const view = @import("view.zig");
+    try std.testing.expectEqualStrings(view.our_group_titles[0], @field(texts, "group_title")[0]);
+    try std.testing.expectEqualStrings(view.our_group_titles[1], @field(texts, "group_title")[1]);
 }

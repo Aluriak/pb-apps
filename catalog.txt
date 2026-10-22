@@ -1,8 +1,10 @@
 # The apps the app manager offers. One per line, fields separated by tabs:
-#   id  repository  asset  file  name_en  name_fr  description_en  description_fr
+#   id  repository  asset  file  name_en  name_fr  description_en  description_fr  [old files]
 # id:         short and stable, names the settings and the icons (icons/<id>.bmp, icons/<id>_f.bmp)
 # repository: GitHub owner/name, whose releases publish version.txt and <asset>-<platform>.bin
-# file:       name of the app in the applications folder, without ".app"
-app-manager	Aluriak/pb-apps	app-manager	App Manager	App Manager	Gestionnaire d'apps	Installs and updates these apps	Installe et met à jour ces apps
-opds-connector	Aluriak/pb-opds-connector	opds-connector	OPDS Connector	OPDS Connector	Connecteur OPDS	Browse OPDS catalogs and download books	Parcourir des catalogues OPDS et télécharger des livres
-reading-stats	Aluriak/pb-stats	reading-stats	Reading Stats	Reading Stats	Statistiques de lecture	Statistics about your reading	Statistiques sur vos lectures
+# file:       name of the app in the applications folder, without ".app". No spaces: the reader
+#             does not start apps of its menu whose path has one
+# old files:  earlier names of the app file, comma separated; such a file is renamed to `file`
+app-manager	Aluriak/pb-apps	app-manager	app-manager	App Manager	Gestionnaire d'apps	Installs and updates these apps	Installe et met à jour ces apps	App Manager
+opds-connector	Aluriak/pb-opds-connector	opds-connector	opds-connector	OPDS Connector	Connecteur OPDS	Browse OPDS catalogs and download books	Parcourir des catalogues OPDS et télécharger des livres	OPDS Connector
+reading-stats	Aluriak/pb-stats	reading-stats	reading-stats	Reading Stats	Statistiques de lecture	Statistics about your reading	Statistiques sur vos lectures	Reading Stats

@@ -83,7 +83,7 @@ jobs:
           # Debug builds write a log, see "Debugging" in the README
           for platform in allwinner rk3566; do
             zig build -Dplatform=$platform $ZIGFLAGS --prefix zig-out/debug-$platform
-            mv "zig-out/debug-$platform/bin/App Manager.app" "zig-out/debug-$platform/bin/App Manager.bin"
+            mv "zig-out/debug-$platform/bin/app-manager.app" "zig-out/debug-$platform/bin/app-manager.bin"
             cp scripts/apps-debug.app zig-out/debug-$platform/bin/
           done
 
@@ -91,10 +91,10 @@ jobs:
         run: |
           mkdir -p dist
           for platform in allwinner rk3566; do
-            (cd zig-out/$platform/bin && zip -9 "$GITHUB_WORKSPACE/dist/app-manager-$platform.zip" "App Manager.app")
-            (cd zig-out/debug-$platform/bin && zip -9 "$GITHUB_WORKSPACE/dist/app-manager-$platform-debug.zip" "App Manager.bin" apps-debug.app)
+            (cd zig-out/$platform/bin && zip -9 "$GITHUB_WORKSPACE/dist/app-manager-$platform.zip" app-manager.app)
+            (cd zig-out/debug-$platform/bin && zip -9 "$GITHUB_WORKSPACE/dist/app-manager-$platform-debug.zip" app-manager.bin apps-debug.app)
             # Unzipped, for the app to update itself. GitHub refuses files ending in .app
-            cp "zig-out/$platform/bin/App Manager.app" "dist/app-manager-$platform.bin"
+            cp "zig-out/$platform/bin/app-manager.app" "dist/app-manager-$platform.bin"
           done
           {
             echo "channel=$KIND"
@@ -123,7 +123,7 @@ jobs:
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "Nightly build" \
-            --notes "Latest build of main, commit ${GITHUB_SHA::7}. Unzip and copy \`App Manager.app\` into the \`applications\` folder of your PocketBook."
+            --notes "Latest build of main, commit ${GITHUB_SHA::7}. Unzip and copy \`app-manager.app\` into the \`applications\` folder of your PocketBook."
 
       - name: Publish the release
         if: env.KIND == 'release'
@@ -133,4 +133,4 @@ jobs:
           gh release create "$RELEASE_TAG" dist/* \
             --target "$GITHUB_SHA" \
             --title "$RELEASE_TAG" \
-            --notes "Version ${APP_VERSION}. Unzip and copy \`App Manager.app\` into the \`applications\` folder of your PocketBook."
+            --notes "Version ${APP_VERSION}. Unzip and copy \`app-manager.app\` into the \`applications\` folder of your PocketBook."

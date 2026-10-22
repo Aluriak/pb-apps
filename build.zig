@@ -1,7 +1,8 @@
 const std = @import("std");
 
-/// The name of the app file, "App Manager.app". The title on screen is translated.
-const app_name = "App Manager";
+/// The name of the app file, "app-manager.app": no spaces, the reader does not start apps of its
+/// menu whose path has one. The title on screen and in the menu is translated.
+const app_name = "app-manager";
 
 const version = @import("build.zig.zon").version;
 

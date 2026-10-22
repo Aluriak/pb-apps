@@ -15,8 +15,9 @@ from their GitHub releases. In English or French.
    [nightly release](https://github.com/Aluriak/pb-apps/releases/tag/nightly):
    `app-manager-allwinner.zip` for most readers (Era, Verse, InkPad 4, Vivlio Light HD Color…),
    `app-manager-rk3566.zip` for Verta, InkPad One and PocketBook Q.
-2. Unzip it and copy `App Manager.app` into the `applications` folder of the reader.
-3. Open "App Manager" from the applications list. From then on it updates itself.
+2. Unzip it and copy `app-manager.app` into the `applications` folder of the reader.
+3. Open "app-manager" from the applications list. It then puts itself and the other apps in
+   the menu under their names, in a group of their own. From then on it updates itself.
 
 ## Use
 
@@ -32,8 +33,10 @@ The app lists the apps with what is installed and what is available. Touch an ap
 The last row sets the language: the reader's, French or English.
 
 Installed apps are declared in the reader's applications menu
-(`system/config/desktop/view.json`), with their name and an icon, instead of showing up under
-their file name with a "@" in front. Apps installed by hand are declared too. The reader's own
+(`system/config/desktop/view.json`), with their name and an icon, in a group "More apps"
+("Autres applications"), instead of showing up under their file name with a "@" in front.
+App files have no spaces in their names (`opds-connector.app`): the reader does not start an app
+of its menu whose path has one. Files of earlier names (`OPDS Connector.app`) are renamed. Apps installed by hand are declared too. The reader's own
 file is kept once as `view.json.before-pb-apps`.
 
 The reader sometimes rewrites this file, e.g. after a firmware update, and the apps then show
@@ -57,8 +60,8 @@ Its icons go in [icons/](icons), drawn by `scripts/make-icons.py`.
 
 The `-debug` archives of the nightly release hold a build that writes a log:
 
-1. Copy `App Manager.bin` and `apps-debug.app` into the `applications` folder.
-2. Open "apps-debug" instead of "App Manager".
+1. Copy `app-manager.bin` and `apps-debug.app` into the `applications` folder.
+2. Open "apps-debug" instead of the app manager.
 3. The log is written to `app-manager-log.txt` at the top of the reader's storage.
 
 ## Development

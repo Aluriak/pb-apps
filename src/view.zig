@@ -10,8 +10,9 @@ const std = @import("std");
 
 pub const default_path = "/mnt/ext1/system/config/desktop/view.json";
 
-/// The group our apps are put in, the reader's main one
-const group_title = "@General";
+/// The titles of the group our apps go in, in every language of the app. The group takes the
+/// title of the current language, and is found again under any of them.
+pub const our_group_titles = [_][]const u8{ "More apps", "Autres applications" };
 
 pub const Declaration = struct {
     /// "U_<id>"
@@ -22,6 +23,8 @@ pub const Declaration = struct {
     /// Relative to the reader's storage, or null to keep the reader's default icon
     icon: ?[]const u8 = null,
     focused_icon: ?[]const u8 = null,
+    /// The title of the group it goes in, one of `our_group_titles`
+    group: []const u8 = our_group_titles[0],
 };
 
 /// The view.json text with `declaration` added, or replaced if the app is declared already
@@ -39,15 +42,15 @@ pub fn declare(allocator: std.mem.Allocator, text: []const u8, declaration: Decl
     if (declaration.focused_icon) |icon| try entry.put(arena, "focused_icon", try pathObject(arena, icon));
     try applications.put(arena, declaration.key, .{ .object = entry });
 
-    const apps = try groupApps(arena, root);
-    for (apps.items) |item| {
-        if (item == .string and std.mem.eql(u8, item.string, declaration.key)) break;
-    } else try apps.append(.{ .string = declaration.key });
+    // Out of any other group, e.g. the reader's main one where earlier versions put it
+    try removeFromGroups(root, declaration.key);
+    const apps = try ourGroup(arena, root, declaration.group);
+    try apps.append(.{ .string = declaration.key });
 
     return write(allocator, parsed.value);
 }
 
-/// The view.json text without the app `key`
+/// The view.json text without the app `key`. Our group goes when it is empty.
 pub fn remove(allocator: std.mem.Allocator, text: []const u8, key: []const u8) ![]u8 {
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, text, .{});
     defer parsed.deinit();
@@ -56,23 +59,53 @@ pub fn remove(allocator: std.mem.Allocator, text: []const u8, key: []const u8) !
     if (root.getPtr("applications")) |applications| {
         if (applications.* == .object) _ = applications.object.orderedRemove(key);
     }
-    if (root.getPtr("view")) |view| {
-        if (view.* == .object) if (view.object.getPtr("groups")) |groups| {
-            if (groups.* == .array) for (groups.array.items) |*group| {
-                if (group.* != .object) continue;
-                const apps = group.object.getPtr("apps") orelse continue;
-                if (apps.* != .array) continue;
-                var i: usize = 0;
-                while (i < apps.array.items.len) {
-                    const item = apps.array.items[i];
-                    if (item == .string and std.mem.eql(u8, item.string, key)) {
-                        _ = apps.array.orderedRemove(i);
-                    } else i += 1;
-                }
-            };
-        };
+    try removeFromGroups(root, key);
+
+    if (groupsOf(root)) |groups| {
+        var i: usize = 0;
+        while (i < groups.items.len) {
+            const group = groups.items[i];
+            const empty = if (group == .object) if (group.object.get("apps")) |apps| apps == .array and apps.array.items.len == 0 else true else false;
+            if (group == .object and isOurs(group.object) and empty) {
+                _ = groups.orderedRemove(i);
+            } else i += 1;
+        }
     }
     return write(allocator, parsed.value);
+}
+
+fn groupsOf(root: *std.json.ObjectMap) ?*std.json.Array {
+    const view = root.getPtr("view") orelse return null;
+    if (view.* != .object) return null;
+    const groups = view.object.getPtr("groups") orelse return null;
+    if (groups.* != .array) return null;
+    return &groups.array;
+}
+
+fn isOurs(group: std.json.ObjectMap) bool {
+    const title = group.get("title") orelse return false;
+    if (title != .string) return false;
+    for (our_group_titles) |ours| {
+        if (std.mem.eql(u8, title.string, ours)) return true;
+    }
+    return false;
+}
+
+/// Takes `key` out of the apps of every group
+fn removeFromGroups(root: *std.json.ObjectMap, key: []const u8) !void {
+    const groups = groupsOf(root) orelse return;
+    for (groups.items) |*group| {
+        if (group.* != .object) continue;
+        const apps = group.object.getPtr("apps") orelse continue;
+        if (apps.* != .array) continue;
+        var i: usize = 0;
+        while (i < apps.array.items.len) {
+            const item = apps.array.items[i];
+            if (item == .string and std.mem.eql(u8, item.string, key)) {
+                _ = apps.array.orderedRemove(i);
+            } else i += 1;
+        }
+    }
 }
 
 /// Whether `declaration` is in the view.json text as it is: same entry, and in a group.
@@ -98,6 +131,7 @@ pub fn isDeclared(allocator: std.mem.Allocator, text: []const u8, declaration: D
     if (groups != .array) return false;
     for (groups.array.items) |group| {
         if (group != .object) continue;
+        if (!stringIs(group.object.get("title"), declaration.group)) continue;
         const apps = group.object.get("apps") orelse continue;
         if (apps != .array) continue;
         for (apps.array.items) |item| {
@@ -136,30 +170,25 @@ fn pathObject(arena: std.mem.Allocator, path: []const u8) !std.json.Value {
     return .{ .object = value };
 }
 
-/// The "apps" of the group our apps go in: the reader's main group, or the first one
-fn groupApps(arena: std.mem.Allocator, root: *std.json.ObjectMap) !*std.json.Array {
+/// The "apps" of our group, under `title`: found under any of its titles, or created
+/// right after the reader's first group
+fn ourGroup(arena: std.mem.Allocator, root: *std.json.ObjectMap, title: []const u8) !*std.json.Array {
     const view = try objectField(arena, root, "view");
     const groups_entry = try view.getOrPut(arena, "groups");
     if (!groups_entry.found_existing) groups_entry.value_ptr.* = .{ .array = .init(arena) };
     if (groups_entry.value_ptr.* != .array) return error.UnknownViewFormat;
     const groups = &groups_entry.value_ptr.array;
 
-    var chosen: ?*std.json.ObjectMap = null;
-    for (groups.items) |*group| {
-        if (group.* != .object) continue;
-        if (chosen == null) chosen = &group.object;
-        const title = group.object.get("title") orelse continue;
-        if (title == .string and std.mem.eql(u8, title.string, group_title)) {
-            chosen = &group.object;
-            break;
-        }
-    }
-    const group = chosen orelse blk: {
+    const group = for (groups.items) |*group| {
+        if (group.* == .object and isOurs(group.object)) break &group.object;
+    } else blk: {
         var created: std.json.ObjectMap = .empty;
-        try created.put(arena, "title", .{ .string = group_title });
-        try groups.append(.{ .object = created });
-        break :blk &groups.items[groups.items.len - 1].object;
+        try created.put(arena, "title", .{ .string = title });
+        try created.put(arena, "sort", .{ .string = "title" });
+        try groups.insert(@min(1, groups.items.len), .{ .object = created });
+        break :blk &groups.items[@min(1, groups.items.len - 1)].object;
     };
+    try group.put(arena, "title", .{ .string = title });
 
     const apps_entry = try group.getOrPut(arena, "apps");
     if (!apps_entry.found_existing) apps_entry.value_ptr.* = .{ .array = .init(arena) };
@@ -226,13 +255,13 @@ const reader_view =
 
 const opds: Declaration = .{
     .key = "U_opds-connector",
-    .path = "applications/OPDS Connector.app",
+    .path = "applications/opds-connector.app",
     .title = "Connecteur OPDS",
     .icon = "applications/icons/opds-connector.bmp",
     .focused_icon = "applications/icons/opds-connector_f.bmp",
 };
 
-test "declare adds the app and puts it in the main group, keeping everything else" {
+test "declare adds the app and puts it in its own group, keeping everything else" {
     const text = try declare(std.testing.allocator, reader_view, opds);
     defer std.testing.allocator.free(text);
 
@@ -247,10 +276,11 @@ test "declare adds the app and puts it in the main group, keeping everything els
     try std.testing.expect(root.get("applications").?.object.contains("_comment"));
 
     const groups = root.get("view").?.object.get("groups").?.array.items;
-    const general = groups[0].object.get("apps").?.array.items;
-    try std.testing.expectEqual(3, general.len);
-    try std.testing.expectEqualStrings("U_opds-connector", general[2].string);
-    try std.testing.expectEqual(1, groups[1].object.get("apps").?.array.items.len);
+    try std.testing.expectEqual(3, groups.len);
+    try std.testing.expectEqual(2, groups[0].object.get("apps").?.array.items.len);
+    try std.testing.expectEqualStrings("More apps", groups[1].object.get("title").?.string);
+    try std.testing.expectEqualStrings("U_opds-connector", groups[1].object.get("apps").?.array.items[0].string);
+    try std.testing.expectEqualStrings("@Games", groups[2].object.get("title").?.string);
 }
 
 test "declaring twice changes the entry without adding it twice" {
@@ -266,6 +296,29 @@ test "declaring twice changes the entry without adding it twice" {
     try std.testing.expect(std.mem.indexOf(u8, twice, "\"title\": \"OPDS Connector\"") != null);
 }
 
+test "declare moves an app out of the reader's group and renames our group" {
+    const a = std.testing.allocator;
+    const old =
+        \\{ "applications": { "U_opds-connector": { "path": "applications/OPDS Connector.app", "title": "x" } },
+        \\  "view": { "groups": [ { "title": "@General", "apps": [ "PB_Browser", "U_opds-connector" ] },
+        \\                       { "title": "More apps", "apps": [ "U_reading-stats" ] } ] } }
+    ;
+    var french = opds;
+    french.group = "Autres applications";
+    const text = try declare(a, old, french);
+    defer a.free(text);
+
+    var parsed = try std.json.parseFromSlice(std.json.Value, a, text, .{});
+    defer parsed.deinit();
+    const groups = parsed.value.object.get("view").?.object.get("groups").?.array.items;
+    try std.testing.expectEqual(2, groups.len);
+    try std.testing.expectEqual(1, groups[0].object.get("apps").?.array.items.len);
+    try std.testing.expectEqualStrings("Autres applications", groups[1].object.get("title").?.string);
+    try std.testing.expectEqual(2, groups[1].object.get("apps").?.array.items.len);
+    try std.testing.expect(isDeclared(a, text, french));
+    try std.testing.expect(!isDeclared(a, text, opds));
+}
+
 test "remove takes the app out of the applications and the groups" {
     const declared = try declare(std.testing.allocator, reader_view, opds);
     defer std.testing.allocator.free(declared);
@@ -274,6 +327,8 @@ test "remove takes the app out of the applications and the groups" {
 
     try std.testing.expect(std.mem.indexOf(u8, removed, "U_opds-connector") == null);
     try std.testing.expect(std.mem.indexOf(u8, removed, "PB_Settings") != null);
+    // Our group went with its last app
+    try std.testing.expect(std.mem.indexOf(u8, removed, "More apps") == null);
 }
 
 test "isDeclared sees a missing, changed or ungrouped app" {
