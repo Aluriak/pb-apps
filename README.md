@@ -73,6 +73,12 @@ make build-all   # the app for both platforms, into zig-out/<platform>/bin
 `PB_APPS_TEST_VIEW=/path/to/view.json make test` also checks the menu changes on a real
 reader's view.json.
 
+### Releases
+
+Every push to `main` replaces the nightly release. To publish a stable release, set the new
+version in `build.zig.zon` and push it to `main`: the build workflow sees that this version has
+no release yet and publishes one, tagged `v<version>`.
+
 ## Licence
 
 GPL-3.0, see [LICENSE](LICENSE).
