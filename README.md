@@ -35,17 +35,26 @@ the app manager last.
 
 The last row sets the language: the reader's, French or English.
 
-Installed apps are declared in the reader's applications menu
-(`system/config/desktop/view.json`), with their name and an icon, in a group "More apps"
-("Autres applications"), instead of showing up under their file name with a "@" in front.
+### Names and icons in the menu (optional)
+
+By default the app manager leaves the reader's menu alone: the apps show in the applications
+list under their file name, with a "@" in front (`@opds-connector`).
+
+The row **Menu** turns on their declaration in the reader's menu file
+(`system/config/desktop/view.json`): each app then shows with its name and an icon, in a group
+"More apps" ("Autres applications"). Turning it off takes them out of the file again. The
+reader's own file is kept once as `view.json.before-pb-apps`. Restart the reader if the menu
+does not change.
+
 Each app is declared the way entries known to work on readers are: the key named after the app
 file (`U_opds-connector` for `opds-connector.app`), absolute paths
 (`/mnt/ext1/applications/opds-connector.app`), and icons as 8-bit BMP files of 106 pixels.
-App files have no spaces in their names. Files of earlier names (`OPDS Connector.app`) are renamed. Apps installed by hand are declared too. The reader's own
-file is kept once as `view.json.before-pb-apps`.
 
 The reader sometimes rewrites this file, e.g. after a firmware update, and the apps then show
-up under their file name again. Opening the app manager puts them back in the menu.
+up under their file name again. With the option on, opening the app manager puts them back.
+
+Versions before 0.1.4 declared the apps without asking, in a way that did not work on every
+reader. The first start of 0.1.4 takes those entries out; turn the option on to try again.
 
 The app manager remembers its settings and what it installed in `system/config/pb-apps.cfg`.
 

@@ -50,6 +50,10 @@ fn appPath(buf: []u8, app: catalog.App) ![:0]const u8 {
     return std.fmt.bufPrintSentinel(buf, "{s}/{s}.app", .{ apps_dir, app.file }, 0);
 }
 
+/// Whether apps are declared in the reader's menu file, view.json. Off, the manager never
+/// touches that file, and the apps show under their file name.
+pub var manage_menu = false;
+
 /// Downloads the app next to where it goes, checks it is an ARM program and puts it in
 /// place. A running app goes on with its old file and uses the new one from its next start.
 /// Then gets its icons and declares it in the applications menu, as `title`.
@@ -72,6 +76,7 @@ pub fn install(app: catalog.App, build: catalog.Build, title: []const u8, on_pro
     if (std.c.rename(part.ptr, path.ptr) != 0) return error.CannotReplaceApp;
 
     // Without icons or a menu entry the app still works, under its file name
+    if (!manage_menu) return;
     const icons = fetchIcons(app);
     declare(app, title, icons) catch |err| trace("view.json not changed: {s}\n", .{@errorName(err)});
 }
@@ -87,7 +92,7 @@ pub fn uninstall(app: catalog.App) !void {
         const icon = std.fmt.bufPrintSentinel(&icon_buf, "{s}/{s}{s}.bmp", .{ icons_dir, app.id, suffix }, 0) catch continue;
         _ = std.c.unlink(icon.ptr);
     }
-    undeclare(app) catch |err| trace("view.json not changed: {s}\n", .{@errorName(err)});
+    if (manage_menu) undeclare(app) catch |err| trace("view.json not changed: {s}\n", .{@errorName(err)});
 }
 
 extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
@@ -146,6 +151,7 @@ pub fn declare(app: catalog.App, title: []const u8, icons: bool) !void {
 /// Declares the app again if the reader rewrote the menu file without it, getting the icons
 /// first if they are missing and the reader is online. Returns whether the menu was changed.
 pub fn ensureDeclared(app: catalog.App, title: []const u8, online: bool) bool {
+    if (!manage_menu) return false;
     var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
     defer arena.deinit();
     const text = view.readFile(arena.allocator(), view.default_path) catch return false;
@@ -169,7 +175,8 @@ pub fn hasIcons(app: catalog.App) bool {
     return std.c.access(path.ptr, 0) == 0;
 }
 
-fn undeclare(app: catalog.App) !void {
+/// Takes the app out of the menu file, whether it is declared there or not
+pub fn undeclare(app: catalog.App) !void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();

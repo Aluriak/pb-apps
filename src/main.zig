@@ -48,7 +48,7 @@ var list_pos: c_int = 0;
 const Row = struct {
     title: [:0]const u8,
     detail: [:0]const u8,
-    opens: union(enum) { app: usize, update_all, language },
+    opens: union(enum) { app: usize, update_all, menu, language },
 };
 
 var item_height: c_int = 0;
@@ -73,6 +73,13 @@ fn mainHandler(event_type: c_int, par1: c_int, _: c_int) callconv(.c) c_int {
     switch (event_type) {
         pb.EVT_INIT => {
             language = state.language();
+            install.manage_menu = state.menu();
+            // Versions before the setting declared the apps without asking, in a way that
+            // did not work: their entries go, the user turns the menu on if they want it
+            if (state.menuSet() == null) {
+                state.setMenu(false);
+                clean_menu = true;
+            }
             i18n.lang = language.resolve(readerLanguage());
             _ = pb.SetSubtaskInfo(pb.GetCurrentTask(), 0, t(.app_title), null);
 
@@ -117,6 +124,7 @@ fn load() !void {
     if (apps.len == 0) apps = try catalog.parse(allocator, catalog.built_in);
 
     entries = try allocator.alloc(Entry, apps.len);
+    defer clean_menu = false;
     for (apps, entries) |app, *entry| {
         entry.* = .{
             .app = app,
@@ -133,6 +141,7 @@ fn load() !void {
             entry.installed = self();
         }
         if (online) entry.available = available(allocator, app, entry.channel);
+        if (clean_menu) install.undeclare(app) catch |err| trace("{s} not taken out: {s}\n", .{ app.id, @errorName(err) });
         // The reader may have rewritten its menu file and dropped the apps, put them back
         if (entry.present) _ = install.ensureDeclared(app, app.name(), online);
     }
@@ -179,6 +188,13 @@ fn rebuildRows() !void {
             .opens = .{ .app = i },
         });
     }
+
+    var menu_buf: [96]u8 = undefined;
+    try list.append(allocator, .{
+        .title = try allocator.dupeSentinel(u8, i18n.fmt(&menu_buf, .menu, .{if (install.manage_menu) t(.menu_on) else t(.menu_off)}), 0),
+        .detail = t(.menu_change),
+        .opens = .menu,
+    });
 
     var buf: [96]u8 = undefined;
     const chosen = switch (language) {
@@ -244,6 +260,7 @@ fn listHandler(action: c_int, x: c_int, y: c_int, idx: c_int, state_flag: c_int)
             switch (rows[@intCast(idx)].opens) {
                 .app => |i| openMenu(i),
                 .update_all => confirmUpdateAll(),
+                .menu => switchMenu(),
                 .language => changeLanguage(),
             }
         },
@@ -576,6 +593,30 @@ fn updateAllAnswered(button: c_int) callconv(.c) void {
     list_pos = 0;
     showList();
     pb.Message(if (failed_len > 0) pb.ICON_WARNING else pb.ICON_INFORMATION, t(.app_title), text.ptr, 8000);
+}
+
+/// Set when the menu file is to be cleaned of the entries of earlier versions
+var clean_menu = false;
+
+/// Turns the declaration of the apps in the reader's menu file on or off
+fn switchMenu() void {
+    const on = !install.manage_menu;
+    // Declared while on, taken out before turning off
+    if (on) install.manage_menu = true;
+    if (on) online = pocketbook.ensureNetwork();
+    pb.ShowHourglassForce();
+    for (entries) |entry| {
+        if (on) {
+            if (entry.present) _ = install.ensureDeclared(entry.app, entry.app.name(), online);
+        } else {
+            install.undeclare(entry.app) catch |err| trace("{s} not taken out: {s}\n", .{ entry.app.id, @errorName(err) });
+        }
+    }
+    pb.HideHourglass();
+    install.manage_menu = on;
+    state.setMenu(on);
+    showList();
+    pb.Message(pb.ICON_INFORMATION, t(.app_title), if (on) t(.menu_now_on) else t(.menu_now_off), 8000);
 }
 
 /// Goes to the next language and names the installed apps in it in the applications menu

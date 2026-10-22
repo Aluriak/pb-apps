@@ -21,6 +21,27 @@ pub fn setLanguage(choice: i18n.Choice) void {
     _ = pb.SaveConfig(config);
 }
 
+/// Whether the manager declares its apps in the reader's menu file, off unless the user
+/// turned it on
+pub fn menu() bool {
+    return menuSet() orelse false;
+}
+
+/// The menu setting, null when the user never set it
+pub fn menuSet() ?bool {
+    const config = pb.OpenConfig(path, null) orelse return null;
+    defer pb.CloseConfigNoSave(config);
+    const value = pb.ReadInt(config, "menu", -1);
+    return if (value < 0) null else value != 0;
+}
+
+pub fn setMenu(on: bool) void {
+    const config = pb.OpenConfig(path, null) orelse return;
+    defer pb.CloseConfig(config);
+    pb.WriteInt(config, "menu", @intFromBool(on));
+    _ = pb.SaveConfig(config);
+}
+
 /// Stable releases unless the user chose nightly builds for the app
 pub fn channel(id: []const u8) catalog.Channel {
     const config = pb.OpenConfig(path, null) orelse return .stable;
