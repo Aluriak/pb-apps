@@ -187,16 +187,25 @@ fn detail(allocator: std.mem.Allocator, entry: Entry) ![:0]const u8 {
 
     var out_buf: [320]u8 = undefined;
     var available_buf: [96]u8 = undefined;
+    // The channel followed is always said, it is what an update brings
+    const channel = channelName(entry.channel);
     const text = switch (entry.available) {
-        .unknown => i18n.fmt(&out_buf, .available, .{ status, "?" })[0..],
+        .unknown => i18n.fmt(&out_buf, .available, .{ status, channel, "?" })[0..],
         .failed => i18n.fmt(&out_buf, .unreachable_build, .{status}),
-        .none => i18n.fmt(&out_buf, .no_build, .{status}),
+        .none => i18n.fmt(&out_buf, .no_build, .{ status, channel }),
         .build => |build| if (entry.present and entry.installed != null and build.sameCommit(entry.installed.?))
-            i18n.fmt(&out_buf, .up_to_date, .{status})
+            i18n.fmt(&out_buf, .up_to_date, .{ status, channel })
         else
-            i18n.fmt(&out_buf, .available, .{ status, build.describe(&available_buf) }),
+            i18n.fmt(&out_buf, .available, .{ status, channel, build.describe(&available_buf) }),
     };
     return allocator.dupeSentinel(u8, text, 0);
+}
+
+fn channelName(channel: catalog.Channel) [:0]const u8 {
+    return switch (channel) {
+        .stable => t(.channel_name_stable),
+        .nightly => t(.channel_name_nightly),
+    };
 }
 
 fn showList() void {
@@ -388,7 +397,12 @@ fn switchChannel() void {
         .nightly => t(.channel_nightly),
         .stable => t(.channel_stable),
     };
-    pb.Message(pb.ICON_INFORMATION, t(.app_title), text.ptr, 3000);
+    if (entry.available == .none) {
+        const full = i18n.fmt(&dialog_text, .channel_none_yet, .{ text, channelName(entry.channel) });
+        pb.Message(pb.ICON_INFORMATION, t(.app_title), full.ptr, 6000);
+    } else {
+        pb.Message(pb.ICON_INFORMATION, t(.app_title), text.ptr, 3000);
+    }
 }
 
 fn confirmUninstall() void {
