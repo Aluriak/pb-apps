@@ -158,6 +158,53 @@ pub fn binaryUrl(buf: []u8, app: App, build: Build, platform: []const u8) ![:0]c
     return std.fmt.bufPrintSentinel(buf, "https://github.com/{s}/releases/download/{s}/{s}-{s}.bin", .{ app.repo, build.tag, app.asset, platform }, 0);
 }
 
+/// The address of the notes of `build`: what changed since the release before it
+pub fn notesUrl(buf: []u8, app: App, build: Build) ![:0]const u8 {
+    if (!validTag(build.tag)) return error.IncompleteVersionFile;
+    return std.fmt.bufPrintSentinel(buf, "https://github.com/{s}/releases/download/{s}/notes.txt", .{ app.repo, build.tag }, 0);
+}
+
+/// The first lines of release notes, one change per line, each cut to `width` bytes,
+/// with "…" when there are more. Cuts do not split a UTF-8 character.
+pub fn shortNotes(buf: []u8, notes: []const u8, max_lines: usize, width: usize) []const u8 {
+    var len: usize = 0;
+    var lines = std.mem.tokenizeAny(u8, notes, "\r\n");
+    var count: usize = 0;
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t");
+        if (line.len == 0) continue;
+        if (count == max_lines) {
+            const more = "\n…";
+            if (len + more.len <= buf.len) {
+                @memcpy(buf[len..][0..more.len], more);
+                len += more.len;
+            }
+            break;
+        }
+        var cut = @min(line.len, width);
+        while (cut < line.len and cut > 0 and line[cut] & 0xc0 == 0x80) cut -= 1;
+        const sep: []const u8 = if (count == 0) "" else "\n";
+        const tail: []const u8 = if (cut < line.len) "…" else "";
+        if (len + sep.len + cut + tail.len > buf.len) break;
+        for ([_][]const u8{ sep, line[0..cut], tail }) |part| {
+            @memcpy(buf[len..][0..part.len], part);
+            len += part.len;
+        }
+        count += 1;
+    }
+    return buf[0..len];
+}
+
+test "shortNotes keeps the first lines and cuts long ones" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("- one\n- two", shortNotes(&buf, "- one\n\n- two\n", 5, 40));
+    try std.testing.expectEqualStrings("- one\n- two\n…", shortNotes(&buf, "- one\n- two\n- three", 2, 40));
+    try std.testing.expectEqualStrings("- abc…", shortNotes(&buf, "- abcdef", 5, 5));
+    // "é" is two bytes, the cut goes before it
+    try std.testing.expectEqualStrings("- d…", shortNotes(&buf, "- dé", 5, 4));
+    try std.testing.expectEqualStrings("", shortNotes(&buf, "", 5, 40));
+}
+
 test "the built-in catalog lists the three apps" {
     const apps = try parse(std.testing.allocator, built_in);
     defer std.testing.allocator.free(apps);

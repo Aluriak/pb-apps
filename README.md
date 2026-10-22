@@ -23,12 +23,15 @@ from their GitHub releases. In English or French.
 
 The app lists the apps with what is installed and what is available. Touch an app to:
 
-* **Install** or **Update** it. The app asks first, saying which version it is and whether it
-  is a stable release or a nightly build.
+* **Install** or **Update** it. The app asks first, saying which version it is, whether it
+  is a stable release or a nightly build, and what changed since the release before it.
 * **Switch** between stable releases and nightly builds. Apps follow stable releases, versions
   the author tagged, unless you switch them to nightly builds, made from every change and less
   tested. Do that when you know why: to try a fix, or to test what comes next.
 * **Uninstall** it. Its settings and your books stay.
+
+When several apps have an update, a first row **Update all** updates them one after the other,
+the app manager last.
 
 The last row sets the language: the reader's, French or English.
 
@@ -51,6 +54,7 @@ the app opens (a copy built into the app is used offline). Each app needs a GitH
 whose releases publish:
 
 * `version.txt`: lines `channel=`, `version=`, `commit=`, `tag=`, `date=`
+* `notes.txt`, optional: what changed, one line per change, shown before an update
 * `<asset>-allwinner.bin` and `<asset>-rk3566.bin`: the app itself, unzipped
 * a `nightly` pre-release for nightly builds, ordinary releases for stable ones
 

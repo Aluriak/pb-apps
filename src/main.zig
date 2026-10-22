@@ -48,7 +48,7 @@ var list_pos: c_int = 0;
 const Row = struct {
     title: [:0]const u8,
     detail: [:0]const u8,
-    entry: ?usize,
+    opens: union(enum) { app: usize, update_all, language },
 };
 
 var item_height: c_int = 0;
@@ -156,11 +156,27 @@ fn rebuildRows() !void {
     const allocator = rows_arena.allocator();
     var list: std.ArrayList(Row) = .empty;
 
+    var pending_buf: [16]usize = undefined;
+    const pending = pendingUpdates(&pending_buf);
+    if (pending.len > 1) {
+        var title_buf: [64]u8 = undefined;
+        var names: std.ArrayList(u8) = .empty;
+        for (pending, 0..) |i, n| {
+            if (n > 0) try names.appendSlice(allocator, ", ");
+            try names.appendSlice(allocator, entries[i].app.name());
+        }
+        try list.append(allocator, .{
+            .title = try allocator.dupeSentinel(u8, i18n.fmt(&title_buf, .update_all, .{pending.len}), 0),
+            .detail = try allocator.dupeSentinel(u8, names.items, 0),
+            .opens = .update_all,
+        });
+    }
+
     for (entries, 0..) |entry, i| {
         try list.append(allocator, .{
             .title = try allocator.dupeSentinel(u8, entry.app.name(), 0),
             .detail = try detail(allocator, entry),
-            .entry = i,
+            .opens = .{ .app = i },
         });
     }
 
@@ -173,7 +189,7 @@ fn rebuildRows() !void {
     try list.append(allocator, .{
         .title = try allocator.dupeSentinel(u8, i18n.fmt(&buf, .language, .{chosen}), 0),
         .detail = t(.language_change),
-        .entry = null,
+        .opens = .language,
     });
     rows = try list.toOwnedSlice(allocator);
 }
@@ -225,10 +241,10 @@ fn listHandler(action: c_int, x: c_int, y: c_int, idx: c_int, state_flag: c_int)
         pb.LIST_OPEN => {
             if (idx < 0 or idx >= rows.len) return 0;
             list_pos = idx;
-            if (rows[@intCast(idx)].entry) |i| {
-                openMenu(i);
-            } else {
-                changeLanguage();
+            switch (rows[@intCast(idx)].opens) {
+                .app => |i| openMenu(i),
+                .update_all => confirmUpdateAll(),
+                .language => changeLanguage(),
             }
         },
         pb.LIST_EXIT => pb.CloseApp(),
@@ -308,7 +324,7 @@ fn menuHandler(index: c_int) callconv(.c) void {
     }
 }
 
-var dialog_text: [640]u8 = undefined;
+var dialog_text: [1536]u8 = undefined;
 
 fn kindText(kind: []const u8) []const u8 {
     if (std.mem.eql(u8, kind, "release")) return t(.kind_release);
@@ -336,8 +352,33 @@ fn confirmInstall() void {
         })
     else
         i18n.fmt(&dialog_text, .confirm_install, .{ entry.app.name(), build.describe(&new_buf), kindText(build.kind) });
+    const with_notes = appendNotes(text.len, entry.app, build);
     const button = if (entry.present) t(.update) else t(.install);
-    pb.Dialog(pb.ICON_QUESTION, t(.app_title), text.ptr, button.ptr, t(.cancel).ptr, installAnswered);
+    pb.Dialog(pb.ICON_QUESTION, t(.app_title), with_notes.ptr, button.ptr, t(.cancel).ptr, installAnswered);
+}
+
+/// Adds what changed in `build` to the text of `dialog_text`, which is `len` bytes long.
+/// Without network, or for releases published without notes, the text stays as it is.
+fn appendNotes(len: usize, app: catalog.App, build: catalog.Build) [:0]const u8 {
+    const text = dialog_text[0..len :0];
+    if (!pocketbook.ensureNetwork()) return text;
+    var url_buf: [256]u8 = undefined;
+    const url = catalog.notesUrl(&url_buf, app, build) catch return text;
+
+    var notes_arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
+    defer notes_arena.deinit();
+    pb.ShowHourglassForce();
+    const notes = net.fetch(notes_arena.allocator(), url);
+    pb.HideHourglass();
+    const body = notes catch |err| {
+        trace("no notes at {s}: {s}\n", .{ url, @errorName(err) });
+        return text;
+    };
+
+    var short_buf: [700]u8 = undefined;
+    const short = catalog.shortNotes(&short_buf, body, 8, 60);
+    if (short.len == 0) return text;
+    return std.fmt.bufPrintSentinel(dialog_text[len..], "\n\n{s}\n{s}", .{ t(.changes), short }, 0) catch return text;
 }
 
 fn installAnswered(button: c_int) callconv(.c) void {
@@ -450,6 +491,91 @@ fn uninstallAnswered(button: c_int) callconv(.c) void {
     entry.installed = null;
     showList();
     pb.Message(pb.ICON_INFORMATION, t(.app_title), i18n.fmt(&buf, .done_uninstall, .{entry.app.name()}).ptr, 4000);
+}
+
+/// The installed apps that have something newer on their channel, the manager last as it
+/// is replaced while it runs
+fn pendingUpdates(buf: []usize) []usize {
+    var n: usize = 0;
+    var manager: ?usize = null;
+    for (entries, 0..) |entry, i| {
+        if (!entry.present or entry.available != .build or upToDate(entry)) continue;
+        if (std.mem.eql(u8, entry.app.id, self_id)) {
+            manager = i;
+        } else if (n < buf.len) {
+            buf[n] = i;
+            n += 1;
+        }
+    }
+    if (manager) |i| if (n < buf.len) {
+        buf[n] = i;
+        n += 1;
+    };
+    return buf[0..n];
+}
+
+fn confirmUpdateAll() void {
+    var pending_buf: [16]usize = undefined;
+    const pending = pendingUpdates(&pending_buf);
+    if (pending.len == 0) return;
+
+    var lines_buf: [1024]u8 = undefined;
+    var len: usize = 0;
+    for (pending) |i| {
+        const entry = entries[i];
+        var build_buf: [96]u8 = undefined;
+        const line = i18n.fmt(lines_buf[len..], .update_all_line, .{ entry.app.name(), entry.available.build.describe(&build_buf) });
+        len += line.len;
+    }
+    const text = i18n.fmt(&dialog_text, .confirm_update_all, .{lines_buf[0..len]});
+    pb.Dialog(pb.ICON_QUESTION, t(.app_title), text.ptr, t(.update).ptr, t(.cancel).ptr, updateAllAnswered);
+}
+
+fn updateAllAnswered(button: c_int) callconv(.c) void {
+    if (button != 1) return;
+    var pending_buf: [16]usize = undefined;
+    const pending = pendingUpdates(&pending_buf);
+
+    if (!pocketbook.ensureNetwork()) {
+        pocketbook.showError(t(.loading_error), error.NoNetwork);
+        return;
+    }
+
+    var updated: usize = 0;
+    var self_updated = false;
+    var failed_buf: [256]u8 = undefined;
+    var failed_len: usize = 0;
+    for (pending) |i| {
+        const entry = &entries[i];
+        const build = entry.available.build;
+        progress_step = 0;
+        pb.OpenProgressbar(pb.ICON_INFORMATION, t(.downloading).ptr, entry.app.name().ptr, 0, null);
+        const result = install.install(entry.app, build, entry.app.name(), onProgress);
+        pb.CloseProgressbar();
+        result catch |err| {
+            trace("update of {s} failed: {s}\n", .{ entry.app.id, @errorName(err) });
+            const sep = if (failed_len == 0) "" else ", ";
+            const name = std.fmt.bufPrint(failed_buf[failed_len..], "{s}{s}", .{ sep, entry.app.name() }) catch "";
+            failed_len += name.len;
+            continue;
+        };
+        state.setInstalled(entry.app.id, build);
+        entry.installed = copyBuild(build) catch build;
+        updated += 1;
+        if (std.mem.eql(u8, entry.app.id, self_id)) self_updated = true;
+    }
+
+    var buf: [640]u8 = undefined;
+    var len = i18n.fmt(&buf, .done_update_all, .{ updated, pending.len }).len;
+    if (failed_len > 0) len += i18n.fmt(buf[len..], .update_all_failed, .{failed_buf[0..failed_len]}).len;
+    if (self_updated) {
+        if (std.fmt.bufPrintSentinel(buf[len..], "\n\n{s}", .{t(.done_self_update)}, 0)) |more| len += more.len else |_| {}
+    }
+    const text = buf[0..len :0];
+
+    list_pos = 0;
+    showList();
+    pb.Message(if (failed_len > 0) pb.ICON_WARNING else pb.ICON_INFORMATION, t(.app_title), text.ptr, 8000);
 }
 
 /// Goes to the next language and names the installed apps in it in the applications menu
