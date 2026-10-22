@@ -39,13 +39,14 @@ class Pen:
 
 
 def opds_connector(pen):
-    # An open book, an arrow coming down into it
-    pen.line((22, 58), (40, 52), (61, 58))
-    pen.line((61, 58), (82, 52), (100, 58))
-    pen.line((22, 58), (22, 96), (40, 91), (61, 97), (82, 91), (100, 96), (100, 58))
-    pen.line((61, 58), (61, 97))
-    pen.line((61, 20), (61, 44))
-    pen.line((51, 35), (61, 45), (71, 35))
+    # An open book, two pages with rounded corners and lines of text, an arrow coming down
+    pen.box(24, 44, 59, 104, 6)
+    pen.box(63, 44, 98, 104, 6)
+    for y in (62, 76):
+        pen.line((32, y), (51, y))
+        pen.line((71, y), (90, y))
+    pen.line((61, 10), (61, 32))
+    pen.line((52, 24), (61, 33), (70, 24))
 
 
 def reading_stats(pen):
