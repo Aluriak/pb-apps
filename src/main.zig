@@ -130,6 +130,8 @@ fn load() !void {
             entry.installed = self();
         }
         if (online) entry.available = available(allocator, app, entry.channel);
+        // The reader may have rewritten its menu file and dropped the apps, put them back
+        if (entry.present) _ = install.ensureDeclared(app, app.name(), online);
     }
 }
 
@@ -417,8 +419,7 @@ fn changeLanguage() void {
     i18n.lang = language.resolve(readerLanguage());
     _ = pb.SetSubtaskInfo(pb.GetCurrentTask(), 0, t(.app_title), null);
     for (entries) |entry| {
-        if (!entry.present or entry.installed == null) continue;
-        install.declare(entry.app, entry.app.name(), install.hasIcons(entry.app)) catch {};
+        if (entry.present) _ = install.ensureDeclared(entry.app, entry.app.name(), online);
     }
     showList();
 }

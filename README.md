@@ -33,9 +33,11 @@ The last row sets the language: the reader's, French or English.
 
 Installed apps are declared in the reader's applications menu
 (`system/config/desktop/view.json`), with their name and an icon, instead of showing up under
-their file name with a "@" in front. The reader's own file is kept once as
-`view.json.before-pb-apps`. Some readers may reset this file; the apps then still work, under
-their file name.
+their file name with a "@" in front. Apps installed by hand are declared too. The reader's own
+file is kept once as `view.json.before-pb-apps`.
+
+The reader sometimes rewrites this file, e.g. after a firmware update, and the apps then show
+up under their file name again. Opening the app manager puts them back in the menu.
 
 The app manager remembers its settings and what it installed in `system/config/pb-apps.cfg`.
 

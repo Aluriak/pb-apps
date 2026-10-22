@@ -75,6 +75,49 @@ pub fn remove(allocator: std.mem.Allocator, text: []const u8, key: []const u8) !
     return write(allocator, parsed.value);
 }
 
+/// Whether `declaration` is in the view.json text as it is: same entry, and in a group.
+/// The reader may rewrite the file, e.g. after a firmware update, and drop our apps.
+pub fn isDeclared(allocator: std.mem.Allocator, text: []const u8, declaration: Declaration) bool {
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, text, .{}) catch return false;
+    defer parsed.deinit();
+    if (parsed.value != .object) return false;
+    const root = parsed.value.object;
+
+    const applications = root.get("applications") orelse return false;
+    if (applications != .object) return false;
+    const entry = applications.object.get(declaration.key) orelse return false;
+    if (entry != .object) return false;
+    if (!stringIs(entry.object.get("path"), declaration.path)) return false;
+    if (!stringIs(entry.object.get("title"), declaration.title)) return false;
+    if (!pathIs(entry.object.get("icon"), declaration.icon)) return false;
+    if (!pathIs(entry.object.get("focused_icon"), declaration.focused_icon)) return false;
+
+    const view = root.get("view") orelse return false;
+    if (view != .object) return false;
+    const groups = view.object.get("groups") orelse return false;
+    if (groups != .array) return false;
+    for (groups.array.items) |group| {
+        if (group != .object) continue;
+        const apps = group.object.get("apps") orelse continue;
+        if (apps != .array) continue;
+        for (apps.array.items) |item| {
+            if (item == .string and std.mem.eql(u8, item.string, declaration.key)) return true;
+        }
+    }
+    return false;
+}
+
+fn stringIs(value: ?std.json.Value, expected: []const u8) bool {
+    const v = value orelse return false;
+    return v == .string and std.mem.eql(u8, v.string, expected);
+}
+
+fn pathIs(value: ?std.json.Value, expected: ?[]const u8) bool {
+    const path = expected orelse return value == null;
+    const v = value orelse return false;
+    return v == .object and stringIs(v.object.get("path"), path);
+}
+
 fn object(value: *std.json.Value) !*std.json.ObjectMap {
     if (value.* != .object) return error.UnknownViewFormat;
     return &value.object;
@@ -231,6 +274,25 @@ test "remove takes the app out of the applications and the groups" {
 
     try std.testing.expect(std.mem.indexOf(u8, removed, "U_opds-connector") == null);
     try std.testing.expect(std.mem.indexOf(u8, removed, "PB_Settings") != null);
+}
+
+test "isDeclared sees a missing, changed or ungrouped app" {
+    const a = std.testing.allocator;
+    try std.testing.expect(!isDeclared(a, reader_view, opds));
+
+    const declared = try declare(a, reader_view, opds);
+    defer a.free(declared);
+    try std.testing.expect(isDeclared(a, declared, opds));
+
+    var other_title = opds;
+    other_title.title = "OPDS Connector";
+    try std.testing.expect(!isDeclared(a, declared, other_title));
+
+    var no_icon = opds;
+    no_icon.icon = null;
+    try std.testing.expect(!isDeclared(a, declared, no_icon));
+
+    try std.testing.expect(!isDeclared(a, "{ broken", opds));
 }
 
 test "declare refuses what is not a view file" {

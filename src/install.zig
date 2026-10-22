@@ -85,6 +85,24 @@ fn fetchIcons(app: catalog.App) bool {
     return true;
 }
 
+/// The menu entry of an app, the strings in the given buffers
+const DeclarationBufs = struct {
+    key: [96]u8 = undefined,
+    path: [256]u8 = undefined,
+    icon: [256]u8 = undefined,
+    focused: [256]u8 = undefined,
+
+    fn make(bufs: *DeclarationBufs, app: catalog.App, title: []const u8, icons: bool) !view.Declaration {
+        return .{
+            .key = try std.fmt.bufPrint(&bufs.key, "U_{s}", .{app.id}),
+            .path = try std.fmt.bufPrint(&bufs.path, "applications/{s}.app", .{app.file}),
+            .title = title,
+            .icon = if (icons) try std.fmt.bufPrint(&bufs.icon, "applications/icons/{s}.bmp", .{app.id}) else null,
+            .focused_icon = if (icons) try std.fmt.bufPrint(&bufs.focused, "applications/icons/{s}_f.bmp", .{app.id}) else null,
+        };
+    }
+};
+
 /// Declares the app in the applications menu, under `title` and with its icons if there are
 pub fn declare(app: catalog.App, title: []const u8, icons: bool) !void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
@@ -95,18 +113,28 @@ pub fn declare(app: catalog.App, title: []const u8, icons: bool) !void {
     const text = view.readFile(allocator, view.default_path) catch return;
     backup(text);
 
-    var key_buf: [96]u8 = undefined;
-    var path_buf: [256]u8 = undefined;
-    var icon_buf: [256]u8 = undefined;
-    var focused_buf: [256]u8 = undefined;
-    const declaration: view.Declaration = .{
-        .key = try std.fmt.bufPrint(&key_buf, "U_{s}", .{app.id}),
-        .path = try std.fmt.bufPrint(&path_buf, "applications/{s}.app", .{app.file}),
-        .title = title,
-        .icon = if (icons) try std.fmt.bufPrint(&icon_buf, "applications/icons/{s}.bmp", .{app.id}) else null,
-        .focused_icon = if (icons) try std.fmt.bufPrint(&focused_buf, "applications/icons/{s}_f.bmp", .{app.id}) else null,
-    };
+    var bufs: DeclarationBufs = .{};
+    const declaration = try bufs.make(app, title, icons);
     try view.writeFile(view.default_path, try view.declare(allocator, text, declaration));
+}
+
+/// Declares the app again if the reader rewrote the menu file without it, getting the icons
+/// first if they are missing and the reader is online. Returns whether the menu was changed.
+pub fn ensureDeclared(app: catalog.App, title: []const u8, online: bool) bool {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
+    defer arena.deinit();
+    const text = view.readFile(arena.allocator(), view.default_path) catch return false;
+
+    if (!hasIcons(app) and online) _ = fetchIcons(app);
+    const icons = hasIcons(app);
+
+    var bufs: DeclarationBufs = .{};
+    const declaration = bufs.make(app, title, icons) catch return false;
+    if (view.isDeclared(arena.allocator(), text, declaration)) return false;
+
+    trace("declaring {s} again\n", .{app.id});
+    declare(app, title, icons) catch return false;
+    return true;
 }
 
 /// Whether the icons of the app are on the reader
