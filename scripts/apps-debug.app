@@ -1,5 +1,5 @@
 #!/bin/sh
-LOG=/mnt/ext1/app-manager-log.txt
+LOG=/mnt/ext1/system/app-manager-log.txt
 BIN="/mnt/ext1/applications/app-manager.bin"
 echo "== run" >> $LOG
 "$BIN" >> $LOG 2>&1

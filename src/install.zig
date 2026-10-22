@@ -117,11 +117,12 @@ const DeclarationBufs = struct {
 
     fn make(bufs: *DeclarationBufs, app: catalog.App, title: []const u8, icons: bool) !view.Declaration {
         return .{
-            .key = try std.fmt.bufPrint(&bufs.key, "U_{s}", .{app.id}),
-            .path = try std.fmt.bufPrint(&bufs.path, "applications/{s}.app", .{app.file}),
+            // The reader wants the key named after the app file
+            .key = try std.fmt.bufPrint(&bufs.key, "U_{s}", .{app.file}),
+            .path = try std.fmt.bufPrint(&bufs.path, "{s}/{s}.app", .{ apps_dir, app.file }),
             .title = title,
-            .icon = if (icons) try std.fmt.bufPrint(&bufs.icon, "applications/icons/{s}.bmp", .{app.id}) else null,
-            .focused_icon = if (icons) try std.fmt.bufPrint(&bufs.focused, "applications/icons/{s}_f.bmp", .{app.id}) else null,
+            .icon = if (icons) try std.fmt.bufPrint(&bufs.icon, "{s}/{s}.bmp", .{ icons_dir, app.id }) else null,
+            .focused_icon = if (icons) try std.fmt.bufPrint(&bufs.focused, "{s}/{s}_f.bmp", .{ icons_dir, app.id }) else null,
             .group = i18n.t(.group_title),
         };
     }
@@ -175,7 +176,7 @@ fn undeclare(app: catalog.App) !void {
 
     const text = view.readFile(allocator, view.default_path) catch return;
     var key_buf: [96]u8 = undefined;
-    const key = try std.fmt.bufPrint(&key_buf, "U_{s}", .{app.id});
+    const key = try std.fmt.bufPrint(&key_buf, "U_{s}", .{app.file});
     try view.writeFile(view.default_path, try view.remove(allocator, text, key));
 }
 

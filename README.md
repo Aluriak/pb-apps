@@ -38,8 +38,10 @@ The last row sets the language: the reader's, French or English.
 Installed apps are declared in the reader's applications menu
 (`system/config/desktop/view.json`), with their name and an icon, in a group "More apps"
 ("Autres applications"), instead of showing up under their file name with a "@" in front.
-App files have no spaces in their names (`opds-connector.app`): the reader does not start an app
-of its menu whose path has one. Files of earlier names (`OPDS Connector.app`) are renamed. Apps installed by hand are declared too. The reader's own
+Each app is declared the way entries known to work on readers are: the key named after the app
+file (`U_opds-connector` for `opds-connector.app`), absolute paths
+(`/mnt/ext1/applications/opds-connector.app`), and icons as 8-bit BMP files of 106 pixels.
+App files have no spaces in their names. Files of earlier names (`OPDS Connector.app`) are renamed. Apps installed by hand are declared too. The reader's own
 file is kept once as `view.json.before-pb-apps`.
 
 The reader sometimes rewrites this file, e.g. after a firmware update, and the apps then show
@@ -66,7 +68,7 @@ The `-debug` archives of the nightly release hold a build that writes a log:
 
 1. Copy `app-manager.bin` and `apps-debug.app` into the `applications` folder.
 2. Open "apps-debug" instead of the app manager.
-3. The log is written to `app-manager-log.txt` at the top of the reader's storage.
+3. The log is written to `app-manager-log.txt` in the `system` folder of the reader (out of the library, which takes text files for books).
 
 ## Development
 

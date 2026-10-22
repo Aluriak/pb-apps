@@ -1,6 +1,6 @@
 .{
     .name = .pb_apps,
-    .version = "0.1.2",
+    .version = "0.1.3",
     .fingerprint = 0xbf23585861f5039b,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{},

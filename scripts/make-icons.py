@@ -2,7 +2,8 @@
 """Draws the icons of the apps into icons/: <id>.bmp and <id>_f.bmp (focused).
 
 Same look as the reader's own icons: thin black outlines with rounded ends on white, in a
-square of 122 pixels (the reader takes up to 128) with a margin around the drawing.
+square of 106 pixels with a margin around the drawing. The reader shows only 8-bit BMP files,
+at most 106 pixels wide and 128 high: 24-bit icons were left out of the menu.
 The focused icon has a thicker line.
 Drawn four times larger, then scaled down, for smooth lines.
 Needs Pillow: pip install pillow
@@ -12,7 +13,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-SIZE = 122
+SIZE = 106
 SCALE = 4
 OUT = Path(__file__).resolve().parent.parent / "icons"
 
@@ -114,7 +115,8 @@ def render(draw_icon, width):
     icon = Image.new("L", (SIZE, SIZE), 255)
     offset = (SIZE - inner) // 2
     icon.paste(image.resize((inner, inner), Image.LANCZOS), (offset, offset))
-    return icon.convert("RGB")
+    # 8 bits per pixel, grey levels
+    return icon
 
 
 def main():

@@ -1,8 +1,13 @@
 //! Declaring apps in the reader's applications menu, system/config/desktop/view.json.
 //!
-//! Its own comments describe the format: user apps are entries "U_<id>" of "applications",
-//! with "path", "title" and optionally "icon" and "focused_icon" ({ "path": ... }). An app
-//! appears in the menu when its key is in the "apps" of one of the "view" "groups".
+//! Its own comments describe the format: user apps are entries "U_<name>" of "applications",
+//! with "path", "title" and optionally "icon" and "focused_icon". An app appears in the menu
+//! when its key is in the "apps" of one of the "view" "groups".
+//!
+//! Declared as the comments show it (a path relative to the storage, icons as { "path": ... })
+//! the apps showed in the menu without their icons and did not start. Entries known to work
+//! on readers give absolute paths, icons as plain strings, and name the key after the app
+//! file: "U_koreader" for applications/koreader.app. So do we.
 //! Apps of the applications folder that are not declared show up under their file name,
 //! with a "@" in front.
 
@@ -15,12 +20,12 @@ pub const default_path = "/mnt/ext1/system/config/desktop/view.json";
 pub const our_group_titles = [_][]const u8{ "More apps", "Autres applications" };
 
 pub const Declaration = struct {
-    /// "U_<id>"
+    /// "U_<file>", the name of the app file without ".app"
     key: []const u8,
-    /// Relative to the reader's storage, e.g. "applications/OPDS Connector.app"
+    /// Absolute, e.g. "/mnt/ext1/applications/opds-connector.app"
     path: []const u8,
     title: []const u8,
-    /// Relative to the reader's storage, or null to keep the reader's default icon
+    /// Absolute, or null to keep the reader's default icon
     icon: ?[]const u8 = null,
     focused_icon: ?[]const u8 = null,
     /// The title of the group it goes in, one of `our_group_titles`
@@ -38,8 +43,8 @@ pub fn declare(allocator: std.mem.Allocator, text: []const u8, declaration: Decl
     var entry: std.json.ObjectMap = .empty;
     try entry.put(arena, "path", .{ .string = declaration.path });
     try entry.put(arena, "title", .{ .string = declaration.title });
-    if (declaration.icon) |icon| try entry.put(arena, "icon", try pathObject(arena, icon));
-    if (declaration.focused_icon) |icon| try entry.put(arena, "focused_icon", try pathObject(arena, icon));
+    if (declaration.icon) |icon| try entry.put(arena, "icon", .{ .string = icon });
+    if (declaration.focused_icon) |icon| try entry.put(arena, "focused_icon", .{ .string = icon });
     try applications.put(arena, declaration.key, .{ .object = entry });
 
     // Out of any other group, e.g. the reader's main one where earlier versions put it
@@ -149,7 +154,7 @@ fn stringIs(value: ?std.json.Value, expected: []const u8) bool {
 fn pathIs(value: ?std.json.Value, expected: ?[]const u8) bool {
     const path = expected orelse return value == null;
     const v = value orelse return false;
-    return v == .object and stringIs(v.object.get("path"), path);
+    return stringIs(v, path);
 }
 
 fn object(value: *std.json.Value) !*std.json.ObjectMap {
@@ -162,12 +167,6 @@ fn objectField(arena: std.mem.Allocator, parent: *std.json.ObjectMap, name: []co
     const entry = try parent.getOrPut(arena, name);
     if (!entry.found_existing) entry.value_ptr.* = .{ .object = .empty };
     return object(entry.value_ptr);
-}
-
-fn pathObject(arena: std.mem.Allocator, path: []const u8) !std.json.Value {
-    var value: std.json.ObjectMap = .empty;
-    try value.put(arena, "path", .{ .string = path });
-    return .{ .object = value };
 }
 
 /// The "apps" of our group, under `title`: found under any of its titles, or created
@@ -255,10 +254,10 @@ const reader_view =
 
 const opds: Declaration = .{
     .key = "U_opds-connector",
-    .path = "applications/opds-connector.app",
+    .path = "/mnt/ext1/applications/opds-connector.app",
     .title = "Connecteur OPDS",
-    .icon = "applications/icons/opds-connector.bmp",
-    .focused_icon = "applications/icons/opds-connector_f.bmp",
+    .icon = "/mnt/ext1/applications/icons/opds-connector.bmp",
+    .focused_icon = "/mnt/ext1/applications/icons/opds-connector_f.bmp",
 };
 
 test "declare adds the app and puts it in its own group, keeping everything else" {
@@ -272,7 +271,8 @@ test "declare adds the app and puts it in its own group, keeping everything else
 
     const entry = root.get("applications").?.object.get("U_opds-connector").?.object;
     try std.testing.expectEqualStrings("Connecteur OPDS", entry.get("title").?.string);
-    try std.testing.expectEqualStrings("applications/icons/opds-connector.bmp", entry.get("icon").?.object.get("path").?.string);
+    try std.testing.expectEqualStrings("/mnt/ext1/applications/icons/opds-connector.bmp", entry.get("icon").?.string);
+    try std.testing.expectEqualStrings("/mnt/ext1/applications/opds-connector.app", entry.get("path").?.string);
     try std.testing.expect(root.get("applications").?.object.contains("_comment"));
 
     const groups = root.get("view").?.object.get("groups").?.array.items;
