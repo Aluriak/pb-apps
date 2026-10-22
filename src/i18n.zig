@@ -91,12 +91,19 @@ const texts = .{
     .menu = .{ "Menu: {s}", "Menu : {s}" },
     .menu_on = .{ "names and icons", "noms et icônes" },
     .menu_off = .{ "file names", "noms de fichiers" },
-    .menu_change = .{ "Tap to change. Names and icons change the reader's menu file", "Touchez pour changer. Noms et icônes modifient le fichier du menu de la liseuse" },
+    .menu_change = .{ "Names and icons change the reader's menu file", "Noms et icônes modifient le fichier du menu de la liseuse" },
+    .menu_title = .{ "Apps in the reader's menu", "Apps dans le menu de la liseuse" },
+    .menu_off_detail = .{ "@opds-connector… The menu file is left alone", "@opds-connector… Le fichier du menu n'est pas modifié" },
+    .menu_on_detail = .{ "In a group \"More apps\", through the reader's menu file", "Dans un groupe « Autres applications », par le fichier du menu de la liseuse" },
+    .current = .{ "{s} · current choice", "{s} · choix actuel" },
+    .language_title = .{ "Language", "Langue" },
+    .follows = .{ "Follows: {s}", "Suit : {s}" },
+    .uninstall_detail = .{ "Your books and the app's settings stay", "Vos livres et les réglages de l'app restent" },
     .menu_now_on = .{ "The apps go in the menu with their name and icon, in a group of their own. Restart the reader if they do not show.", "Les apps vont dans le menu avec leur nom et leur icône, dans leur propre groupe. Redémarrez la liseuse si elles n'apparaissent pas." },
     .menu_now_off = .{ "The apps are out of the menu file: they show under their file name. Restart the reader if the menu did not change.", "Les apps sont retirées du fichier du menu : elles apparaissent sous leur nom de fichier. Redémarrez la liseuse si le menu n'a pas changé." },
     .language = .{ "Language: {s}", "Langue : {s}" },
     .language_auto = .{ "same as the reader", "celle de la liseuse" },
-    .language_change = .{ "Tap to change", "Touchez pour changer" },
+    .language_change = .{ "English or French", "Français ou anglais" },
     .language_en = .{ "English", "English" },
     .language_fr = .{ "Français", "Français" },
 };
@@ -109,6 +116,15 @@ pub fn t(comptime key: Key) [:0]const u8 {
     return switch (lang) {
         .en => pair[0],
         .fr => pair[1],
+    };
+}
+
+/// A text with arguments, allocated
+pub fn alloc(allocator: std.mem.Allocator, comptime key: Key, args: anytype) ![:0]const u8 {
+    const pair = @field(texts, @tagName(key));
+    return switch (lang) {
+        .en => std.fmt.allocPrintSentinel(allocator, pair[0], args, 0),
+        .fr => std.fmt.allocPrintSentinel(allocator, pair[1], args, 0),
     };
 }
 

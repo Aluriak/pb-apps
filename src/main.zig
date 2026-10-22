@@ -137,8 +137,12 @@ fn load() !void {
             .available = .unknown,
         };
         // The running manager knows its own build
-        if (std.mem.eql(u8, app.id, self_id) and entry.installed == null and !std.mem.eql(u8, self().commit, "dev")) {
-            entry.installed = self();
+        // The running manager knows its own build, better than what was noted when it was
+        // installed: it may have been replaced by hand since
+        if (std.mem.eql(u8, app.id, self_id) and !std.mem.eql(u8, self().commit, "dev")) {
+            const running = self();
+            if (entry.installed == null or !entry.installed.?.sameCommit(running)) state.setInstalled(app.id, running);
+            entry.installed = running;
         }
         if (online) entry.available = available(allocator, app, entry.channel);
         if (clean_menu) install.undeclare(app) catch |err| trace("{s} not taken out: {s}\n", .{ app.id, @errorName(err) });
@@ -244,8 +248,128 @@ fn channelName(channel: catalog.Channel) [:0]const u8 {
 }
 
 fn showList() void {
+    if (page) |p| {
+        pb.OpenList(p.title.ptr, null, pb.ScreenWidth(), item_height, @intCast(p.choices.len), 0, pageHandler);
+        return;
+    }
     rebuildRows() catch return;
     pb.OpenList(t(.app_title), null, pb.ScreenWidth(), item_height, @intCast(rows.len), list_pos, listHandler);
+}
+
+/// A page of choices opened from a row: what to do with an app, or the value of a setting.
+/// A list like the main one, left with Back: the reader's floating menus close only with a
+/// small cross, often hidden under their title.
+const Page = struct {
+    title: [:0]const u8,
+    choices: []const Choice,
+};
+
+const Choice = struct {
+    title: [:0]const u8,
+    detail: [:0]const u8 = "",
+    does: Does,
+    /// Greyed, does nothing
+    inactive: bool = false,
+};
+
+const Does = union(enum) { install, switch_channel, uninstall, menu: bool, language: i18n.Choice };
+
+var page: ?Page = null;
+var page_arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
+
+fn openPage(build: *const fn (std.mem.Allocator) anyerror!Page) void {
+    _ = page_arena.reset(.retain_capacity);
+    page = build(page_arena.allocator()) catch return;
+    showList();
+}
+
+fn pageHandler(action: c_int, x: c_int, y: c_int, idx: c_int, state_flag: c_int) callconv(.c) c_int {
+    const p = page orelse return 0;
+    switch (action) {
+        pb.LIST_PAINT => {
+            if (idx < 0 or idx >= p.choices.len) return 0;
+            const choice = p.choices[@intCast(idx)];
+            paintLines(choice.title, choice.detail, x, y, state_flag != 0, choice.inactive);
+        },
+        pb.LIST_OPEN => {
+            if (idx < 0 or idx >= p.choices.len) return 0;
+            const choice = p.choices[@intCast(idx)];
+            if (choice.inactive) return 1;
+            // Back on the main list, the choice may show a dialog over it
+            page = null;
+            showList();
+            switch (choice.does) {
+                .install => confirmInstall(),
+                .switch_channel => switchChannel(),
+                .uninstall => confirmUninstall(),
+                .menu => |on| if (on != install.manage_menu) switchMenu(),
+                .language => |chosen| if (chosen != language) setLanguage(chosen),
+            }
+        },
+        pb.LIST_EXIT => {
+            page = null;
+            showList();
+        },
+        else => return 0,
+    }
+    return 1;
+}
+
+/// "<detail> · current choice" for the choice in effect
+fn marked(allocator: std.mem.Allocator, text: []const u8, current: bool) ![:0]const u8 {
+    if (!current) return allocator.dupeSentinel(u8, text, 0);
+    return i18n.alloc(allocator, .current, .{text});
+}
+
+fn appPage(allocator: std.mem.Allocator) !Page {
+    const entry = entries[menu_entry];
+    var choices: std.ArrayList(Choice) = .empty;
+
+    var build_buf: [96]u8 = undefined;
+    const install_title = if (!entry.present) t(.install) else if (upToDate(entry)) t(.reinstall) else t(.update);
+    try choices.append(allocator, switch (entry.available) {
+        .build => |build| .{
+            .title = install_title,
+            .detail = try std.fmt.allocPrintSentinel(allocator, "{s} · {s}", .{ build.describe(&build_buf), kindText(build.kind) }, 0),
+            .does = .install,
+        },
+        else => .{ .title = install_title, .detail = t(.nothing_to_install), .does = .install, .inactive = true },
+    });
+
+    try choices.append(allocator, .{
+        .title = switch (entry.channel) {
+            .nightly => t(.switch_to_stable),
+            .stable => t(.switch_to_nightly),
+        },
+        .detail = try i18n.alloc(allocator, .follows, .{channelName(entry.channel)}),
+        .does = .switch_channel,
+    });
+
+    // The manager does not remove itself
+    if (entry.present and !std.mem.eql(u8, entry.app.id, self_id)) {
+        try choices.append(allocator, .{ .title = t(.uninstall), .detail = t(.uninstall_detail), .does = .uninstall });
+    }
+    return .{ .title = try allocator.dupeSentinel(u8, entry.app.name(), 0), .choices = try choices.toOwnedSlice(allocator) };
+}
+
+fn menuPage(allocator: std.mem.Allocator) !Page {
+    const choices = try allocator.alloc(Choice, 2);
+    choices[0] = .{ .title = t(.menu_off), .detail = try marked(allocator, t(.menu_off_detail), !install.manage_menu), .does = .{ .menu = false } };
+    choices[1] = .{ .title = t(.menu_on), .detail = try marked(allocator, t(.menu_on_detail), install.manage_menu), .does = .{ .menu = true } };
+    return .{ .title = t(.menu_title), .choices = choices };
+}
+
+fn languagePage(allocator: std.mem.Allocator) !Page {
+    const options = [_]struct { i18n.Choice, [:0]const u8 }{
+        .{ .auto, t(.language_auto) },
+        .{ .fr, t(.language_fr) },
+        .{ .en, t(.language_en) },
+    };
+    const choices = try allocator.alloc(Choice, options.len);
+    for (options, choices) |option, *choice| {
+        choice.* = .{ .title = option[1], .detail = try marked(allocator, "", option[0] == language), .does = .{ .language = option[0] } };
+    }
+    return .{ .title = t(.language_title), .choices = choices };
 }
 
 fn listHandler(action: c_int, x: c_int, y: c_int, idx: c_int, state_flag: c_int) callconv(.c) c_int {
@@ -258,10 +382,13 @@ fn listHandler(action: c_int, x: c_int, y: c_int, idx: c_int, state_flag: c_int)
             if (idx < 0 or idx >= rows.len) return 0;
             list_pos = idx;
             switch (rows[@intCast(idx)].opens) {
-                .app => |i| openMenu(i),
+                .app => |i| {
+                    menu_entry = i;
+                    openPage(appPage);
+                },
                 .update_all => confirmUpdateAll(),
-                .menu => switchMenu(),
-                .language => changeLanguage(),
+                .menu => openPage(menuPage),
+                .language => openPage(languagePage),
             }
         },
         pb.LIST_EXIT => pb.CloseApp(),
@@ -271,58 +398,25 @@ fn listHandler(action: c_int, x: c_int, y: c_int, idx: c_int, state_flag: c_int)
 }
 
 fn paintRow(row: Row, x: c_int, y: c_int, selected: bool) void {
+    paintLines(row.title, row.detail, x, y, selected, false);
+}
+
+fn paintLines(title: [:0]const u8, second: [:0]const u8, x: c_int, y: c_int, selected: bool, inactive: bool) void {
     const width = pb.ScreenWidth();
     const text_width = width - 2 * padding;
     const line_height = @divTrunc(item_height - 2 * padding, 2);
     const flags = pb.ALIGN_LEFT | pb.VALIGN_MIDDLE | pb.DOTS;
 
-    pb.SetFont(title_font, pb.BLACK);
-    _ = pb.DrawTextRect(x + padding, y + padding, text_width, line_height, row.title.ptr, flags);
+    pb.SetFont(title_font, if (inactive) pb.LGRAY else pb.BLACK);
+    _ = pb.DrawTextRect(x + padding, y + padding, text_width, line_height, title.ptr, flags);
     pb.SetFont(detail_font, pb.DGRAY);
-    _ = pb.DrawTextRect(x + padding, y + padding + line_height, text_width, line_height, row.detail.ptr, flags);
+    _ = pb.DrawTextRect(x + padding, y + padding + line_height, text_width, line_height, second.ptr, flags);
     pb.DrawLine(x, y + item_height - 1, x + width, y + item_height - 1, pb.LGRAY);
-    if (selected) pb.DrawSelection(x, y, width, item_height, pb.BLACK);
+    if (selected and !inactive) pb.DrawSelection(x, y, width, item_height, pb.BLACK);
 }
 
-/// What the menu of an app can do
-const MenuItem = enum(c_int) { install = 1, switch_channel, uninstall };
-
-// InkView keeps pointers into these while the menu is open
-var menu: [5]pb.imenu = undefined;
-var menu_title: [96]u8 = undefined;
+/// The app whose page is open, or that an install or uninstall is going on for
 var menu_entry: usize = 0;
-
-fn openMenu(i: usize) void {
-    menu_entry = i;
-    const entry = entries[i];
-    const title = std.fmt.bufPrintSentinel(&menu_title, "{s}", .{entry.app.name()}, 0) catch return;
-
-    var n: usize = 0;
-    menu[n] = .{ .type = pb.ITEM_HEADER, .index = 0, .text = @constCast(title.ptr), .submenu = null };
-    n += 1;
-
-    const install_text = if (!entry.present) t(.install) else if (upToDate(entry)) t(.reinstall) else t(.update);
-    const can_install = entry.available == .build;
-    menu[n] = .{ .type = if (can_install) pb.ITEM_ACTIVE else pb.ITEM_INACTIVE, .index = @backingInt(MenuItem.install), .text = @constCast(install_text.ptr), .submenu = null };
-    n += 1;
-
-    const switch_text = switch (entry.channel) {
-        .nightly => t(.switch_to_stable),
-        .stable => t(.switch_to_nightly),
-    };
-    menu[n] = .{ .type = pb.ITEM_ACTIVE, .index = @backingInt(MenuItem.switch_channel), .text = @constCast(switch_text.ptr), .submenu = null };
-    n += 1;
-
-    // The manager does not remove itself
-    if (entry.present and !std.mem.eql(u8, entry.app.id, self_id)) {
-        menu[n] = .{ .type = pb.ITEM_ACTIVE, .index = @backingInt(MenuItem.uninstall), .text = @constCast(t(.uninstall).ptr), .submenu = null };
-        n += 1;
-    }
-    // A zeroed item ends the menu
-    menu[n] = .{ .type = 0, .index = 0, .text = null, .submenu = null };
-
-    pb.OpenMenu(&menu, 1, @divTrunc(pb.ScreenWidth(), 8), @divTrunc(pb.ScreenHeight(), 3), menuHandler);
-}
 
 fn upToDate(entry: Entry) bool {
     const installed = entry.installed orelse return false;
@@ -330,15 +424,6 @@ fn upToDate(entry: Entry) bool {
         .build => |build| build.sameCommit(installed),
         else => false,
     };
-}
-
-fn menuHandler(index: c_int) callconv(.c) void {
-    const item = std.enums.fromInt(MenuItem, index) orelse return;
-    switch (item) {
-        .install => confirmInstall(),
-        .switch_channel => switchChannel(),
-        .uninstall => confirmUninstall(),
-    }
 }
 
 var dialog_text: [1536]u8 = undefined;
@@ -598,7 +683,7 @@ fn updateAllAnswered(button: c_int) callconv(.c) void {
 /// Set when the menu file is to be cleaned of the entries of earlier versions
 var clean_menu = false;
 
-/// Turns the declaration of the apps in the reader's menu file on or off
+/// Turns the declaration of the apps in the reader's menu file to the other state
 fn switchMenu() void {
     const on = !install.manage_menu;
     // Declared while on, taken out before turning off
@@ -619,9 +704,9 @@ fn switchMenu() void {
     pb.Message(pb.ICON_INFORMATION, t(.app_title), if (on) t(.menu_now_on) else t(.menu_now_off), 8000);
 }
 
-/// Goes to the next language and names the installed apps in it in the applications menu
-fn changeLanguage() void {
-    language = language.next();
+/// Sets the language and names the installed apps in it in the applications menu
+fn setLanguage(chosen: i18n.Choice) void {
+    language = chosen;
     state.setLanguage(language);
     i18n.lang = language.resolve(readerLanguage());
     _ = pb.SetSubtaskInfo(pb.GetCurrentTask(), 0, t(.app_title), null);

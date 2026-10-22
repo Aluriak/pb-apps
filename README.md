@@ -21,7 +21,8 @@ from their GitHub releases. In English or French.
 
 ## Use
 
-The app lists the apps with what is installed and what is available. Touch an app to:
+The app lists the apps with what is installed and what is available. Touch an app to open its
+page, left with Back, and:
 
 * **Install** or **Update** it. The app asks first, saying which version it is, whether it
   is a stable release or a nightly build, and what changed since the release before it.
@@ -33,14 +34,14 @@ The app lists the apps with what is installed and what is available. Touch an ap
 When several apps have an update, a first row **Update all** updates them one after the other,
 the app manager last.
 
-The last row sets the language: the reader's, French or English.
+The last row opens a page to choose the language: the reader's, French or English.
 
 ### Names and icons in the menu (optional)
 
 By default the app manager leaves the reader's menu alone: the apps show in the applications
 list under their file name, with a "@" in front (`@opds-connector`).
 
-The row **Menu** turns on their declaration in the reader's menu file
+The row **Menu** opens a page to choose between file names and names with icons. The latter turns on their declaration in the reader's menu file
 (`system/config/desktop/view.json`): each app then shows with its name and an icon, in a group
 "More apps" ("Autres applications"). Turning it off takes them out of the file again. The
 reader's own file is kept once as `view.json.before-pb-apps`. Restart the reader if the menu
