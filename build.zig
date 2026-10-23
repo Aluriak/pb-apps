@@ -70,7 +70,7 @@ pub fn build(b: *std.Build) void {
     // `zig build test` runs the unit tests on the build machine, for the files that need
     // nothing from the reader.
     const test_step = b.step("test", "Run the unit tests");
-    for ([_][]const u8{ "src/i18n.zig", "src/catalog.zig", "src/view.zig", "src/failure.zig" }) |file| {
+    for ([_][]const u8{ "src/i18n.zig", "src/catalog.zig", "src/view.zig", "src/failure.zig", "src/zip.zig" }) |file| {
         const tests = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path(file),

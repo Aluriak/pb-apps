@@ -8,6 +8,7 @@ const catalog = @import("catalog.zig");
 const i18n = @import("i18n.zig");
 const net = @import("net.zig");
 const view = @import("view.zig");
+const zip = @import("zip.zig");
 const pocketbook = @import("pocketbook.zig");
 const trace = pocketbook.trace;
 
@@ -68,7 +69,10 @@ pub fn install(app: catalog.App, build: catalog.Build, title: []const u8, on_pro
     errdefer _ = std.c.unlink(part.ptr);
 
     trace("install: {s} -> {s}\n", .{ url, part });
-    try net.download(url, apps_dir, part_name, on_progress);
+    switch (app.source()) {
+        .github => try net.download(url, apps_dir, part_name, on_progress),
+        .codeberg => try downloadZipped(url, part, on_progress),
+    }
     if (!startsLikeApp(part)) return error.NotAnApp;
 
     var path_buf: [256]u8 = undefined;
@@ -79,6 +83,18 @@ pub fn install(app: catalog.App, build: catalog.Build, title: []const u8, on_pro
     if (!manage_menu) return;
     const icons = fetchIcons(app);
     declare(app, title, icons) catch |err| trace("view.json not changed: {s}\n", .{@errorName(err)});
+}
+
+/// Downloads the zip at `url` and writes the app it holds to `path`
+fn downloadZipped(url: [:0]const u8, path: [:0]const u8, on_progress: ?net.ProgressFn) !void {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.c_allocator);
+    defer arena.deinit();
+    const archive = try net.fetchWithProgress(arena.allocator(), url, on_progress);
+    const data = try zip.extract(arena.allocator(), archive, ".app");
+
+    const file = std.c.fopen(path.ptr, "wb") orelse return error.CannotWriteApp;
+    defer _ = std.c.fclose(file);
+    if (std.c.fwrite(data.ptr, 1, data.len, file) != data.len) return error.CannotWriteApp;
 }
 
 /// Removes the app, its icons and its menu entry. Its settings and data stay.

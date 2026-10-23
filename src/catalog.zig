@@ -9,9 +9,10 @@ pub const built_in = @embedFile("catalog_txt");
 
 pub const App = struct {
     id: []const u8,
-    /// GitHub owner/name
+    /// GitHub owner/name, or "codeberg:owner/name" for an app published on Codeberg
     repo: []const u8,
-    /// Start of the names of its release files: <asset>-<platform>.bin
+    /// Start of the names of its release files: <asset>-<platform>.bin on GitHub,
+    /// <asset>-<tag or nightly build>-<platform>.zip on Codeberg
     asset: []const u8,
     /// Its name in the applications folder, without ".app"
     file: []const u8,
@@ -27,7 +28,25 @@ pub const App = struct {
     pub fn description(app: App) []const u8 {
         return app.descriptions[@backingInt(i18n.lang)];
     }
+
+    pub fn source(app: App) Source {
+        return if (std.mem.startsWith(u8, app.repo, codeberg_prefix)) .codeberg else .github;
+    }
+
+    /// owner/name, without the forge
+    pub fn repoPath(app: App) []const u8 {
+        return if (app.source() == .codeberg) app.repo[codeberg_prefix.len..] else app.repo;
+    }
 };
+
+pub const Source = enum {
+    /// Apps of this project: releases with version.txt and unzipped <asset>-<platform>.bin
+    github,
+    /// The original OPDS Connector: releases with zipped apps, read through Codeberg's API
+    codeberg,
+};
+
+const codeberg_prefix = "codeberg:";
 
 /// Reads catalog.txt. The strings point into `text`. Lines that cannot be read are skipped.
 pub fn parse(allocator: std.mem.Allocator, text: []const u8) ![]App {
@@ -102,6 +121,8 @@ pub const Build = struct {
     tag: []const u8 = "",
     /// When it was built, e.g. "2026-10-17"
     date: []const u8 = "",
+    /// The name of the zip to download for the reader's platform, for apps from Codeberg
+    zip: []const u8 = "",
 
     /// Reads the "key=value" lines of a version.txt. The slices point into `text`.
     pub fn parse(text: []const u8) !Build {
@@ -131,8 +152,44 @@ pub const Build = struct {
         return text catch buf[0..0];
     }
 
-    /// Whether two builds come from the same commit. Either may be shortened.
+    /// Reads a release as Codeberg's API gives it, for `platform`. The slices point into
+    /// what `allocator` gets, an arena.
+    pub fn parseCodeberg(allocator: std.mem.Allocator, json: []const u8, asset: []const u8, platform: []const u8) !Build {
+        const release = std.json.parseFromSliceLeaky(CodebergRelease, allocator, json, .{ .ignore_unknown_fields = true }) catch return error.IncompleteVersionFile;
+        if (!validTag(release.tag_name)) return error.IncompleteVersionFile;
+
+        // "<asset>-v0.5.0-allwinner.zip", or "<asset>-nightly-20261021-a071a2b-allwinner.zip"
+        var suffix_buf: [64]u8 = undefined;
+        const suffix = std.fmt.bufPrint(&suffix_buf, "-{s}.zip", .{platform}) catch return error.IncompleteVersionFile;
+        for (release.assets) |file| {
+            if (!std.mem.startsWith(u8, file.name, asset) or !std.mem.endsWith(u8, file.name, suffix)) continue;
+            if (file.name.len <= asset.len + suffix.len + 1 or file.name[asset.len] != '-') continue;
+            if (!validTag(file.name)) continue;
+            const middle = file.name[asset.len + 1 .. file.name.len - suffix.len];
+
+            var build: Build = .{ .tag = release.tag_name, .zip = file.name, .date = release.published_at[0..@min(10, release.published_at.len)] };
+            if (release.prerelease) {
+                // nightly-<date>-<commit>
+                var parts = std.mem.splitScalar(u8, middle, '-');
+                build.kind = "nightly";
+                build.version = parts.next() orelse "nightly";
+                _ = parts.next();
+                build.commit = parts.next() orelse release.tag_name;
+            } else {
+                build.kind = "release";
+                build.version = std.mem.trimStart(u8, release.tag_name, "v");
+                // Releases are known by their tag, the API gives no commit
+                build.commit = release.tag_name;
+            }
+            return build;
+        }
+        return error.IncompleteVersionFile;
+    }
+
+    /// Whether two builds come from the same commit. Either may be shortened. Builds known by
+    /// a tag instead of a commit are the same when their tags are.
     pub fn sameCommit(a: Build, b: Build) bool {
+        if (a.commit.len < 7 or b.commit.len < 7) return a.commit.len > 0 and std.mem.eql(u8, a.commit, b.commit);
         const len = @min(a.commit.len, b.commit.len);
         return len >= 7 and std.mem.eql(u8, a.commit[0..len], b.commit[0..len]);
     }
@@ -147,20 +204,40 @@ fn validTag(tag: []const u8) bool {
     return true;
 }
 
-/// The address of the version.txt of `app` on `channel`
+const CodebergRelease = struct {
+    tag_name: []const u8 = "",
+    prerelease: bool = false,
+    published_at: []const u8 = "",
+    assets: []const struct { name: []const u8 = "" } = &.{},
+};
+
+/// The address of the version.txt of `app` on `channel`; for an app from Codeberg, of its
+/// release in Codeberg's API
 pub fn versionUrl(buf: []u8, app: App, channel: Channel) ![:0]const u8 {
+    if (app.source() == .codeberg) {
+        const which = switch (channel) {
+            .stable => "latest",
+            .nightly => "tags/nightly",
+        };
+        return std.fmt.bufPrintSentinel(buf, "https://codeberg.org/api/v1/repos/{s}/releases/{s}", .{ app.repoPath(), which }, 0);
+    }
     return std.fmt.bufPrintSentinel(buf, "https://github.com/{s}/releases/{s}/version.txt", .{ app.repo, channel.path() }, 0);
 }
 
 /// The address of the app file of `build` for `platform`
 pub fn binaryUrl(buf: []u8, app: App, build: Build, platform: []const u8) ![:0]const u8 {
     if (!validTag(build.tag)) return error.IncompleteVersionFile;
+    if (app.source() == .codeberg) {
+        if (!validTag(build.zip)) return error.IncompleteVersionFile;
+        return std.fmt.bufPrintSentinel(buf, "https://codeberg.org/{s}/releases/download/{s}/{s}", .{ app.repoPath(), build.tag, build.zip }, 0);
+    }
     return std.fmt.bufPrintSentinel(buf, "https://github.com/{s}/releases/download/{s}/{s}-{s}.bin", .{ app.repo, build.tag, app.asset, platform }, 0);
 }
 
 /// The address of the notes of `build`: what changed since the release before it
 pub fn notesUrl(buf: []u8, app: App, build: Build) ![:0]const u8 {
     if (!validTag(build.tag)) return error.IncompleteVersionFile;
+    if (app.source() == .codeberg) return error.NoNotes;
     return std.fmt.bufPrintSentinel(buf, "https://github.com/{s}/releases/download/{s}/notes.txt", .{ app.repo, build.tag }, 0);
 }
 
@@ -205,10 +282,46 @@ test "shortNotes keeps the first lines and cuts long ones" {
     try std.testing.expectEqualStrings("", shortNotes(&buf, "", 5, 40));
 }
 
-test "the built-in catalog lists the three apps" {
+test "a release on Codeberg gives the zip for the platform" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const release =
+        \\{"tag_name":"v0.5.0","prerelease":false,"published_at":"2026-10-20T12:26:12+02:00","target_commitish":"main",
+        \\ "assets":[{"name":"opds-connector-v0.5.0-allwinner.zip","size":99651},{"name":"opds-connector-v0.5.0-rk3566.zip"},{"name":"SHA256SUMS"}]}
+    ;
+    const build = try Build.parseCodeberg(a, release, "opds-connector", "rk3566");
+    try std.testing.expectEqualStrings("0.5.0", build.version);
+    try std.testing.expectEqualStrings("release", build.kind);
+    try std.testing.expectEqualStrings("opds-connector-v0.5.0-rk3566.zip", build.zip);
+    try std.testing.expectEqualStrings("2026-10-20", build.date);
+    try std.testing.expect(build.sameCommit(.{ .commit = "v0.5.0" }));
+    try std.testing.expect(!build.sameCommit(.{ .commit = "v0.4.0" }));
+
+    const nightly =
+        \\{"tag_name":"nightly","prerelease":true,"published_at":"2026-10-21T08:00:00Z",
+        \\ "assets":[{"name":"opds-connector-nightly-20261021-a071a2b-allwinner.zip"}]}
+    ;
+    const night = try Build.parseCodeberg(a, nightly, "opds-connector", "allwinner");
+    try std.testing.expectEqualStrings("nightly", night.kind);
+    try std.testing.expectEqualStrings("a071a2b", night.commit);
+    try std.testing.expectError(error.IncompleteVersionFile, Build.parseCodeberg(a, nightly, "opds-connector", "rk3566"));
+    try std.testing.expectError(error.IncompleteVersionFile, Build.parseCodeberg(a, "<html>", "opds-connector", "rk3566"));
+
+    const app: App = .{ .id = "x", .repo = "codeberg:codedge/pb-opds-connector", .asset = "opds-connector", .file = "x", .names = .{ "", "" }, .descriptions = .{ "", "" } };
+    var buf: [256]u8 = undefined;
+    try std.testing.expectEqualStrings("https://codeberg.org/api/v1/repos/codedge/pb-opds-connector/releases/latest", try versionUrl(&buf, app, .stable));
+    try std.testing.expectEqualStrings(
+        "https://codeberg.org/codedge/pb-opds-connector/releases/download/v0.5.0/opds-connector-v0.5.0-rk3566.zip",
+        try binaryUrl(&buf, app, build, "rk3566"),
+    );
+}
+
+test "the built-in catalog lists the apps" {
     const apps = try parse(std.testing.allocator, built_in);
     defer std.testing.allocator.free(apps);
-    try std.testing.expectEqual(3, apps.len);
+    try std.testing.expectEqual(4, apps.len);
+    try std.testing.expectEqual(Source.codeberg, apps[3].source());
     try std.testing.expectEqualStrings("app-manager", apps[0].id);
     try std.testing.expectEqualStrings("opds-connector", apps[1].file);
     try std.testing.expectEqualStrings("OPDS Connector", apps[1].old_files);

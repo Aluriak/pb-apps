@@ -99,6 +99,13 @@ pub fn fetch(allocator: std.mem.Allocator, url: [:0]const u8) ![]u8 {
     return buffer.bytes.toOwnedSlice(allocator);
 }
 
+/// Like `fetch`, reporting the progress
+pub fn fetchWithProgress(allocator: std.mem.Allocator, url: [:0]const u8, on_progress: ?ProgressFn) ![]u8 {
+    current_progress = on_progress;
+    defer current_progress = null;
+    return fetch(allocator, url);
+}
+
 /// Saves what is at `url` as `filename` in `target_dir`. Nothing is left behind on failure.
 pub fn download(url: [:0]const u8, target_dir: []const u8, filename: []const u8, on_progress: ?ProgressFn) !void {
     current_progress = on_progress;

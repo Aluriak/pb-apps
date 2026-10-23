@@ -8,6 +8,7 @@ from their GitHub releases. In English or French.
 | [App Manager](https://github.com/Aluriak/pb-apps) | This app: installs and updates the others, and itself |
 | [OPDS Connector](https://github.com/Aluriak/pb-opds-connector) | Browse OPDS catalogs and download books. A fork of [codedge/pb-opds-connector](https://codeberg.org/codedge/pb-opds-connector) |
 | [Reading Stats](https://github.com/Aluriak/pb-stats) | Statistics about your reading |
+| [OPDS Connector (original)](https://codeberg.org/codedge/pb-opds-connector) | The original app by codedge, from its Codeberg releases. It can be installed next to the fork, and shares its settings file with it |
 
 ## Install
 
@@ -69,6 +70,12 @@ whose releases publish:
 * `notes.txt`, optional: what changed, one line per change, shown before an update
 * `<asset>-allwinner.bin` and `<asset>-rk3566.bin`: the app itself, unzipped
 * a `nightly` pre-release for nightly builds, ordinary releases for stable ones
+
+An app published on Codeberg is listed with its repository as `codeberg:owner/name`. Its
+releases are read through Codeberg's API, and the app is taken out of the zip for the reader's
+platform, `<asset>-<tag>-<platform>.zip` (or `<asset>-nightly-<date>-<commit>-<platform>.zip`
+for the pre-release `nightly`). That is how the original OPDS Connector is offered, as its
+author publishes it, under its own file name `opds-connector-original.app`.
 
 Its icons go in [icons/](icons), drawn by `scripts/make-icons.py`.
 

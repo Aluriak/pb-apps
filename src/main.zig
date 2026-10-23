@@ -160,7 +160,10 @@ fn available(allocator: std.mem.Allocator, app: catalog.App, channel: catalog.Ch
         var reason_buf: [64]u8 = undefined;
         return if (std.mem.indexOf(u8, net.lastFailure(&reason_buf), "404") != null) .none else .failed;
     };
-    const build = catalog.Build.parse(body) catch return .failed;
+    const build = switch (app.source()) {
+        .github => catalog.Build.parse(body),
+        .codeberg => catalog.Build.parseCodeberg(allocator, body, app.asset, build_options.platform),
+    } catch return .failed;
     return .{ .build = build };
 }
 
