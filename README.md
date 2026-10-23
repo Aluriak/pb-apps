@@ -6,9 +6,9 @@ from their GitHub releases. In English or French.
 | App | What it does |
 |---|---|
 | [App Manager](https://github.com/Aluriak/pb-apps) | This app: installs and updates the others, and itself |
-| [OPDS Connector](https://github.com/Aluriak/pb-opds-connector) | Browse OPDS catalogs and download books. A fork of [codedge/pb-opds-connector](https://codeberg.org/codedge/pb-opds-connector) |
+| [OPDS Connector](https://codeberg.org/codedge/pb-opds-connector) | **Recommended.** Browse OPDS catalogs and download books. The original app by codedge, from its Codeberg releases |
+| [OPDS Connector (fork)](https://github.com/Aluriak/pb-opds-connector) | A fork of the above, with sync of lists, book sheets, covers and French |
 | [Reading Stats](https://github.com/Aluriak/pb-stats) | Statistics about your reading |
-| [OPDS Connector (original)](https://codeberg.org/codedge/pb-opds-connector) | The original app by codedge, from its Codeberg releases. It can be installed next to the fork, and shares its settings file with it |
 
 ## Install
 
@@ -34,6 +34,11 @@ page, left with Back, and:
 
 When several apps have an update, a first row **Update all** updates them one after the other,
 the app manager last.
+
+Some apps do the same job, like the original OPDS Connector and its fork: they are never
+installed together. Installing one asks to replace the other, which is then uninstalled; their
+settings file is shared, so servers and logins stay. The one to choose when in doubt is marked
+"recommended".
 
 The last row opens a page to choose the language: the reader's, French or English.
 

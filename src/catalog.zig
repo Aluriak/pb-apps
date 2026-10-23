@@ -20,6 +20,10 @@ pub const App = struct {
     descriptions: [2][]const u8,
     /// Earlier names of the app file, comma separated
     old_files: []const u8 = "",
+    /// Apps of the same group do the same job: one of them only is installed
+    group: []const u8 = "",
+    /// The app of its group to choose when in doubt
+    recommended: bool = false,
 
     pub fn name(app: App) []const u8 {
         return app.names[@backingInt(i18n.lang)];
@@ -56,7 +60,7 @@ pub fn parse(allocator: std.mem.Allocator, text: []const u8) ![]App {
         const line = std.mem.trimEnd(u8, raw, "\r");
         if (line.len == 0 or line[0] == '#') continue;
 
-        var fields: [9][]const u8 = @splat("");
+        var fields: [11][]const u8 = @splat("");
         var it = std.mem.splitScalar(u8, line, '\t');
         var count: usize = 0;
         while (it.next()) |field| : (count += 1) {
@@ -66,6 +70,7 @@ pub fn parse(allocator: std.mem.Allocator, text: []const u8) ![]App {
         // The old file names are optional
         if (count < 8 or !valid(fields[0]) or !valid(fields[2]) or !valid(fields[3])) continue;
         if (std.mem.indexOfScalar(u8, fields[8], '/') != null) continue;
+        if (fields[9].len > 0 and !valid(fields[9])) continue;
 
         try apps.append(allocator, .{
             .id = fields[0],
@@ -75,6 +80,8 @@ pub fn parse(allocator: std.mem.Allocator, text: []const u8) ![]App {
             .names = .{ fields[4], fields[5] },
             .descriptions = .{ fields[6], fields[7] },
             .old_files = fields[8],
+            .group = fields[9],
+            .recommended = std.mem.eql(u8, fields[10], "recommended"),
         });
     }
     return apps.toOwnedSlice(allocator);
@@ -321,13 +328,19 @@ test "the built-in catalog lists the apps" {
     const apps = try parse(std.testing.allocator, built_in);
     defer std.testing.allocator.free(apps);
     try std.testing.expectEqual(4, apps.len);
-    try std.testing.expectEqual(Source.codeberg, apps[3].source());
+    // The original before the fork, the one to choose when in doubt
+    try std.testing.expectEqual(Source.codeberg, apps[1].source());
+    try std.testing.expect(apps[1].recommended);
+    try std.testing.expectEqualStrings("opds-connector", apps[1].group);
+    try std.testing.expectEqualStrings(apps[1].group, apps[2].group);
+    try std.testing.expect(!apps[2].recommended);
+    try std.testing.expectEqualStrings("", apps[3].group);
     try std.testing.expectEqualStrings("app-manager", apps[0].id);
-    try std.testing.expectEqualStrings("opds-connector", apps[1].file);
-    try std.testing.expectEqualStrings("OPDS Connector", apps[1].old_files);
+    try std.testing.expectEqualStrings("opds-connector", apps[2].file);
+    try std.testing.expectEqualStrings("OPDS Connector", apps[2].old_files);
     i18n.lang = .fr;
     defer i18n.lang = .en;
-    try std.testing.expectEqualStrings("Statistiques de lecture", apps[2].name());
+    try std.testing.expectEqualStrings("Statistiques de lecture", apps[3].name());
 }
 
 test "parse skips comments, short lines and unsafe names" {
@@ -360,13 +373,13 @@ test "addresses of version files and app files" {
     var buf: [256]u8 = undefined;
     try std.testing.expectEqualStrings(
         "https://github.com/Aluriak/pb-stats/releases/latest/download/version.txt",
-        try versionUrl(&buf, apps[2], .stable),
+        try versionUrl(&buf, apps[3], .stable),
     );
     try std.testing.expectEqualStrings(
         "https://github.com/Aluriak/pb-opds-connector/releases/download/nightly/opds-connector-allwinner.bin",
-        try binaryUrl(&buf, apps[1], .{ .version = "0.3.1", .commit = "a", .tag = "nightly" }, "allwinner"),
+        try binaryUrl(&buf, apps[2], .{ .version = "0.3.1", .commit = "a", .tag = "nightly" }, "allwinner"),
     );
-    try std.testing.expectError(error.IncompleteVersionFile, binaryUrl(&buf, apps[1], .{ .tag = "../x y" }, "allwinner"));
+    try std.testing.expectError(error.IncompleteVersionFile, binaryUrl(&buf, apps[2], .{ .tag = "../x y" }, "allwinner"));
 }
 
 /// Whether `head`, the first bytes of a file, start an ARM executable

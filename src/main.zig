@@ -227,18 +227,27 @@ fn detail(allocator: std.mem.Allocator, entry: Entry) ![:0]const u8 {
     else
         t(.installed_unknown);
 
+    // Said first: the app is in conflict, or the one to choose
+    var note_buf: [256]u8 = undefined;
+    const status_text: []const u8 = if (entry.present and rivalOf(entry) != null)
+        i18n.fmt(&note_buf, .conflict, .{ status, entries[rivalOf(entry).?].app.name() })
+    else if (!entry.present and entry.app.recommended)
+        i18n.fmt(&note_buf, .recommended, .{status})
+    else
+        status;
+
     var out_buf: [320]u8 = undefined;
     var available_buf: [96]u8 = undefined;
     // The channel followed is always said, it is what an update brings
     const channel = channelName(entry.channel);
     const text = switch (entry.available) {
-        .unknown => i18n.fmt(&out_buf, .available, .{ status, channel, "?" })[0..],
-        .failed => i18n.fmt(&out_buf, .unreachable_build, .{status}),
-        .none => i18n.fmt(&out_buf, .no_build, .{ status, channel }),
+        .unknown => i18n.fmt(&out_buf, .available, .{ status_text, channel, "?" })[0..],
+        .failed => i18n.fmt(&out_buf, .unreachable_build, .{status_text}),
+        .none => i18n.fmt(&out_buf, .no_build, .{ status_text, channel }),
         .build => |build| if (entry.present and entry.installed != null and build.sameCommit(entry.installed.?))
-            i18n.fmt(&out_buf, .up_to_date, .{ status, channel })
+            i18n.fmt(&out_buf, .up_to_date, .{ status_text, channel })
         else
-            i18n.fmt(&out_buf, .available, .{ status, channel, build.describe(&available_buf) }),
+            i18n.fmt(&out_buf, .available, .{ status_text, channel, build.describe(&available_buf) }),
     };
     return allocator.dupeSentinel(u8, text, 0);
 }
@@ -421,6 +430,16 @@ fn paintLines(title: [:0]const u8, second: [:0]const u8, x: c_int, y: c_int, sel
 /// The app whose page is open, or that an install or uninstall is going on for
 var menu_entry: usize = 0;
 
+/// An installed app of the same group as `entry`: it does the same job
+fn rivalOf(entry: Entry) ?usize {
+    if (entry.app.group.len == 0) return null;
+    for (entries, 0..) |other, i| {
+        if (!other.present or std.mem.eql(u8, other.app.id, entry.app.id)) continue;
+        if (std.mem.eql(u8, other.app.group, entry.app.group)) return i;
+    }
+    return null;
+}
+
 fn upToDate(entry: Entry) bool {
     const installed = entry.installed orelse return false;
     return switch (entry.available) {
@@ -448,7 +467,16 @@ fn confirmInstall() void {
     };
     var new_buf: [96]u8 = undefined;
     var old_buf: [96]u8 = undefined;
-    const text = if (entry.present)
+    const rival = if (entry.present) null else rivalOf(entry);
+    const text = if (rival) |other|
+        i18n.fmt(&dialog_text, .confirm_replace, .{
+            entry.app.name(),
+            entries[other].app.name(),
+            entries[other].app.name(),
+            build.describe(&new_buf),
+            kindText(build.kind),
+        })
+    else if (entry.present)
         i18n.fmt(&dialog_text, .confirm_update, .{
             entry.app.name(),
             build.describe(&new_buf),
@@ -458,7 +486,7 @@ fn confirmInstall() void {
     else
         i18n.fmt(&dialog_text, .confirm_install, .{ entry.app.name(), build.describe(&new_buf), kindText(build.kind) });
     const with_notes = appendNotes(text.len, entry.app, build);
-    const button = if (entry.present) t(.update) else t(.install);
+    const button = if (rival != null) t(.replace) else if (entry.present) t(.update) else t(.install);
     pb.Dialog(pb.ICON_QUESTION, t(.app_title), with_notes.ptr, button.ptr, t(.cancel).ptr, installAnswered);
 }
 
@@ -516,7 +544,23 @@ fn installAnswered(button: c_int) callconv(.c) void {
     entry.present = true;
     entry.installed = copyBuild(build) catch build;
 
-    const done = if (std.mem.eql(u8, entry.app.id, self_id))
+    // The apps doing the same job go, so the two are never installed together
+    var replaced: ?usize = null;
+    while (rivalOf(entry.*)) |other| {
+        const rival = &entries[other];
+        install.uninstall(rival.app) catch |err| {
+            pocketbook.showError(i18n.fmt(&buf, .uninstall_error, .{rival.app.name()}), err);
+            break;
+        };
+        state.setInstalled(rival.app.id, null);
+        rival.present = false;
+        rival.installed = null;
+        replaced = other;
+    }
+
+    const done = if (replaced) |other|
+        i18n.fmt(&buf, .done_replace, .{ entry.app.name(), entries[other].app.name() })
+    else if (std.mem.eql(u8, entry.app.id, self_id))
         t(.done_self_update)
     else if (was_present)
         i18n.fmt(&buf, .done_update, .{entry.app.name()})
